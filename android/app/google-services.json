@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "556469915246",
+    "project_id": "valetmobileapp-6f619",
+    "storage_bucket": "valetmobileapp-6f619.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:556469915246:android:7173377775e57f9bc1a07f",
+        "android_client_info": {
+          "package_name": "com.valletmobileapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCgx0rdo5EAxiVMU56125N6iINoAGK-v-Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
