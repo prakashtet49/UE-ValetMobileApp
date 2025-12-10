@@ -161,7 +161,18 @@ function AppStackNavigator() {
 }
 
 export default function AppNavigator() {
-  const {session} = useAuth();
+  const {session, initializing} = useAuth();
+
+  // Show splash screen while checking for stored session
+  if (initializing) {
+    return (
+      <NavigationContainer ref={navigationRef}>
+        <AuthStack.Navigator screenOptions={{headerShown: false}}>
+          <AuthStack.Screen name="Splash" component={SplashScreen} />
+        </AuthStack.Navigator>
+      </NavigationContainer>
+    );
+  }
 
   return (
     <NavigationContainer ref={navigationRef}>

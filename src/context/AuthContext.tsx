@@ -1,7 +1,7 @@
-import React, {createContext, ReactNode, useContext, useState} from 'react';
+import React, {createContext, ReactNode, useContext, useState, useEffect} from 'react';
 import {verifyOtp} from '../api/auth';
 import {tempLogin} from '../api/driver';
-import {clearStoredTokens, setStoredTokens} from '../api/client';
+import {clearStoredTokens, setStoredTokens, setStoredSession, getStoredSession, clearStoredSession} from '../api/client';
 
 export type Session = {
   accessToken: string;
@@ -12,6 +12,7 @@ export type Session = {
 type AuthContextValue = {
   session: Session | null;
   loading: boolean;
+  initializing: boolean;
   error: string | null;
   loginWithPhoneOtp: (phone: string, otp: string) => Promise<void>;
   loginWithTempToken: (token: string) => Promise<boolean>;
@@ -24,7 +25,30 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({children}: {children: ReactNode}) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Check for stored session on mount
+  useEffect(() => {
+    async function initializeSession() {
+      console.log('[Auth] Checking for stored session...');
+      try {
+        const storedSession = await getStoredSession();
+        if (storedSession) {
+          console.log('[Auth] Restoring session for:', storedSession.driverName);
+          setSession(storedSession);
+        } else {
+          console.log('[Auth] No valid stored session found');
+        }
+      } catch (error) {
+        console.error('[Auth] Failed to initialize session:', error);
+      } finally {
+        setInitializing(false);
+      }
+    }
+
+    initializeSession();
+  }, []);
 
   async function loginWithPhoneOtp(phone: string, otp: string) {
     setLoading(true);
@@ -35,11 +59,17 @@ export function AuthProvider({children}: {children: ReactNode}) {
       const driverName =
         response.user.role === 'valet' ? 'Valet Driver' : response.user.role;
 
-      setSession({
+      const sessionData = {
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
         driverName,
-      });
+      };
+
+      // Store session with timestamp for persistence
+      await setStoredSession(sessionData);
+      setSession(sessionData);
+
+      console.log('[Auth] Session stored, valid for 1 hour');
     } finally {
       setLoading(false);
     }
@@ -55,10 +85,16 @@ export function AuthProvider({children}: {children: ReactNode}) {
         // Store the token (using the code as token for temp access)
         await setStoredTokens(token);
         
-        setSession({
+        const sessionData = {
           accessToken: token,
           driverName: `Driver ${response.session.driver_id}`,
-        });
+        };
+
+        // Store session with timestamp for persistence
+        await setStoredSession(sessionData);
+        setSession(sessionData);
+
+        console.log('[Auth] Temp session stored, valid for 1 hour');
         return true;
       } else {
         setError('Invalid token. Please check and try again.');
@@ -86,8 +122,9 @@ export function AuthProvider({children}: {children: ReactNode}) {
   }
 
   async function logout() {
+    console.log('[Auth] Logging out and clearing stored session');
     setSession(null);
-    await clearStoredTokens();
+    await clearStoredSession();
   }
 
   function clearError() {
@@ -96,7 +133,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
 
   return (
     <AuthContext.Provider
-      value={{session, loading, error, loginWithPhoneOtp, loginWithTempToken, logout, clearError}}>
+      value={{session, loading, initializing, error, loginWithPhoneOtp, loginWithTempToken, logout, clearError}}>
       {children}
     </AuthContext.Provider>
   );

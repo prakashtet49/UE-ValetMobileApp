@@ -9,7 +9,6 @@ import {
   View,
   ScrollView,
   Image,
-  Alert,
   ActivityIndicator,
   PermissionsAndroid,
 } from 'react-native';
@@ -21,6 +20,7 @@ import {startParking, uploadParkingPhotos, completeParking} from '../api/parking
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import BackButton from '../components/BackButton';
 import GradientButton from '../components/GradientButton';
+import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
@@ -40,6 +40,17 @@ export default function StartParkingScreen() {
   const [keyTagVerified, setKeyTagVerified] = useState(false);
   const [parkingJobId, setParkingJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    buttons: [],
+  });
 
   const requestCameraPermission = async () => {
     if (Platform.OS === 'android') {
@@ -65,26 +76,36 @@ export default function StartParkingScreen() {
 
   const handleTakePhoto = async (index: number) => {
     if (!keyTagVerified || !parkingJobId) {
-      Alert.alert('Error', 'Please verify key tag first');
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Please verify key tag first',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
       return;
     }
 
     // Request camera permission
     const hasPermission = await requestCameraPermission();
     if (!hasPermission) {
-      Alert.alert(
-        'Permission Denied',
-        'Camera permission is required to take photos. Please enable it in your device settings.',
-        [
+      setDialog({
+        visible: true,
+        title: 'Permission Denied',
+        message: 'Camera permission is required to take photos. Please enable it in your device settings.',
+        buttons: [
           {text: 'Cancel', style: 'cancel'},
           {text: 'Open Settings', onPress: () => {
             if (Platform.OS === 'android') {
-              // You can use Linking to open app settings
-              Alert.alert('Info', 'Please enable Camera permission in App Settings');
+              setDialog({
+                visible: true,
+                title: 'Info',
+                message: 'Please enable Camera permission in App Settings',
+                buttons: [{text: 'OK', style: 'default'}],
+              });
             }
-          }},
-        ]
-      );
+          }, style: 'default'},
+        ],
+      });
       return;
     }
 
@@ -103,7 +124,12 @@ export default function StartParkingScreen() {
       }
 
       if (result.errorCode) {
-        Alert.alert('Error', result.errorMessage || 'Failed to capture photo');
+        setDialog({
+          visible: true,
+          title: 'Error',
+          message: result.errorMessage || 'Failed to capture photo',
+          buttons: [{text: 'OK', style: 'default'}],
+        });
         return;
       }
 
@@ -122,7 +148,12 @@ export default function StartParkingScreen() {
       }
     } catch (error) {
       console.error('Camera error:', error);
-      Alert.alert('Error', 'Failed to open camera');
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to open camera',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     }
   };
 
@@ -139,7 +170,12 @@ export default function StartParkingScreen() {
       await uploadParkingPhotos(parkingJobId, photoData);
     } catch (error) {
       console.error('Failed to upload photo:', error);
-      Alert.alert('Upload Failed', 'Failed to upload photo. Please try again.');
+      setDialog({
+        visible: true,
+        title: 'Upload Failed',
+        message: 'Failed to upload photo. Please try again.',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     } finally {
       setUploadingPhotos(false);
     }
@@ -147,7 +183,12 @@ export default function StartParkingScreen() {
 
   const handleAddPhotos = () => {
     if (!keyTagVerified) {
-      Alert.alert('Info', 'Please verify key tag first before adding photos');
+      setDialog({
+        visible: true,
+        title: 'Info',
+        message: 'Please verify key tag first before adding photos',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
       return;
     }
     // Find first empty slot
@@ -155,7 +196,12 @@ export default function StartParkingScreen() {
     if (emptyIndex !== -1) {
       handleTakePhoto(emptyIndex);
     } else {
-      Alert.alert('Info', 'All photo slots are filled. Click on a photo to replace it.');
+      setDialog({
+        visible: true,
+        title: 'Info',
+        message: 'All photo slots are filled. Click on a photo to replace it.',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     }
   };
 
@@ -207,21 +253,22 @@ export default function StartParkingScreen() {
       console.log('Parking completed successfully:', response);
       
       // Show success message and navigate back
-      Alert.alert(
-        'Success',
-        `Vehicle ${response.vehicleNumber} parked successfully in ${response.slotOrZone}!`,
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack(),
-          },
-        ]
-      );
+      setDialog({
+        visible: true,
+        title: 'Success',
+        message: `Vehicle ${response.vehicleNumber} parked successfully in ${response.slotOrZone}!`,
+        buttons: [{text: 'OK', onPress: () => navigation.goBack(), style: 'default'}],
+      });
     } catch (error: any) {
       console.error('Failed to complete parking:', error);
       const errorMessage = error?.body?.message || error?.message || 'Failed to complete parking. Please try again.';
       setError(errorMessage);
-      Alert.alert('Error', errorMessage);
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: errorMessage,
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     } finally {
       setSubmitting(false);
     }
@@ -352,7 +399,7 @@ export default function StartParkingScreen() {
                   <View style={styles.photoEmpty}>
                     <Text style={styles.photoEmptyIcon}>📷</Text>
                     <Text style={styles.photoEmptyText}>
-                      {index === 0 ? 'Front' : index === 1 ? 'Back' : 'Damage'}
+                      {index === 0 ? 'Image 1' : index === 1 ? 'Image 2' : 'Image 3'}
                     </Text>
                   </View>
                 )}
@@ -390,6 +437,15 @@ export default function StartParkingScreen() {
           </GradientButton>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Custom Dialog */}
+      <CustomDialog
+        visible={dialog.visible}
+        title={dialog.title}
+        message={dialog.message}
+        buttons={dialog.buttons}
+        onDismiss={() => setDialog({...dialog, visible: false})}
+      />
     </View>
   );
 }

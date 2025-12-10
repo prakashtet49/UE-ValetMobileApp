@@ -8,7 +8,9 @@ import {
   TouchableOpacity,
   View,
   Image,
-  Alert,
+  Animated,
+  Dimensions,
+  PanResponder,
 } from 'react-native';
 import {useNavigation, useFocusEffect, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -22,6 +24,7 @@ import {markVehicleArrived, markVehicleHandedOver} from '../api/parking';
 import {getClientLocations, assignLocation, type Location} from '../api/driver';
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import GradientButton from '../components/GradientButton';
+import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {useValetRealtime} from '../hooks/useValetRealtime';
 
@@ -73,6 +76,20 @@ export default function HomeScreen() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  const [dialog, setDialog] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    buttons: [],
+  });
+  const [bannerHeight] = useState(new Animated.Value(0));
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const screenHeight = Dimensions.get('window').height;
 
   // Load dashboard data via REST API
   // Used for: Initial load on mount, Manual refresh (pull-to-refresh)
@@ -115,9 +132,58 @@ export default function HomeScreen() {
       setShowLocationDropdown(false);
     } catch (error) {
       console.error('Failed to assign location:', error);
-      Alert.alert('Error', 'Failed to change location. Please try again.');
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to change location. Please try again.',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     }
   };
+
+  // PanResponder for draggable bottom sheet
+  const expandedHeight = screenHeight * 0.8; // 80% of screen height
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      return Math.abs(gestureState.dy) > 5;
+    },
+    onPanResponderMove: (_, gestureState) => {
+      if (gestureState.dy < 0 && !isFullScreen) {
+        // Dragging up
+        const newHeight = Math.min(Math.abs(gestureState.dy), expandedHeight);
+        bannerHeight.setValue(newHeight);
+      } else if (gestureState.dy > 0 && isFullScreen) {
+        // Dragging down
+        const newHeight = Math.max(0, expandedHeight - Math.abs(gestureState.dy));
+        bannerHeight.setValue(newHeight);
+      }
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dy < -50 && !isFullScreen) {
+        // Expand to 80% screen height
+        setIsFullScreen(true);
+        setIsBannerExpanded(true); // Auto-expand content when dragging up
+        Animated.spring(bannerHeight, {
+          toValue: expandedHeight,
+          useNativeDriver: false,
+        }).start();
+      } else if (gestureState.dy > 50 && isFullScreen) {
+        // Collapse to normal
+        setIsFullScreen(false);
+        Animated.spring(bannerHeight, {
+          toValue: 0,
+          useNativeDriver: false,
+        }).start();
+      } else {
+        // Return to current state
+        Animated.spring(bannerHeight, {
+          toValue: isFullScreen ? expandedHeight : 0,
+          useNativeDriver: false,
+        }).start();
+      }
+    },
+  });
 
   // Setup WebSocket real-time updates for HomeScreen only
   // This connects to 3 endpoints: jobs/active, job-stats/today, pickup-requests/new
@@ -175,14 +241,15 @@ export default function HomeScreen() {
       // Show alert for new pickup requests
       if (payload.requests && payload.requests.length > 0) {
         console.log('[HomeScreen] ✓ Showing alert for', payload.requests.length, 'pickup request(s)');
-        Alert.alert(
-          'New Pickup Request',
-          `You have ${payload.requests.length} pending pickup request(s)`,
-          [
-            {text: 'View', onPress: () => navigation.navigate('PendingPickups')},
+        setDialog({
+          visible: true,
+          title: 'New Pickup Request',
+          message: `You have ${payload.requests.length} pending pickup request(s)`,
+          buttons: [
+            {text: 'View', onPress: () => navigation.navigate('PendingPickups'), style: 'default'},
             {text: 'Later', style: 'cancel'},
-          ]
-        );
+          ],
+        });
       } else {
         console.log('[HomeScreen] ⚠️ No requests to show alert for');
       }
@@ -242,7 +309,12 @@ export default function HomeScreen() {
       }
     } catch (error) {
       console.error('[Home] Failed to update pickup status:', error);
-      Alert.alert('Error', 'Failed to update status. Please try again.');
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to update status. Please try again.',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -281,22 +353,15 @@ export default function HomeScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: logout,
-        },
+    setDialog({
+      visible: true,
+      title: 'Logout',
+      message: 'Are you sure you want to logout?',
+      buttons: [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Logout', style: 'destructive', onPress: logout},
       ],
-      {cancelable: true}
-    );
+    });
   };
 
   const onToggleOnline = async () => {
@@ -476,15 +541,34 @@ export default function HomeScreen() {
 
       {/* Active Pickup Job Banner */}
       {activePickupJob && (
-        <View style={styles.pickupBanner}>
+        <Animated.View 
+          style={[
+            styles.pickupBanner,
+            isFullScreen && {
+              height: bannerHeight,
+            }
+          ]}>
+          {/* Drag Handle */}
+          <View {...panResponder.panHandlers} style={styles.dragHandleContainer}>
+            <View style={styles.dragHandle} />
+          </View>
+          
+          {/* Header */}
           <TouchableOpacity 
             activeOpacity={0.9}
-            onPress={() => setIsBannerExpanded(!isBannerExpanded)}>
-            <View style={styles.pickupBannerHeader}>
-              <Text style={styles.pickupBannerTitle}>🚙 Active Pickup</Text>
-              <Text style={styles.pickupBannerToggle}>{isBannerExpanded ? '▼' : '▲'}</Text>
-            </View>
-            {isBannerExpanded && (
+            onPress={() => setIsBannerExpanded(!isBannerExpanded)}
+            style={styles.pickupBannerHeader}>
+            <Text style={styles.pickupBannerTitle}>🚙 Active Pickup</Text>
+            <Text style={styles.pickupBannerToggle}>{isBannerExpanded ? '▼' : '▲'}</Text>
+          </TouchableOpacity>
+
+          {/* Scrollable Content - Always show when banner is visible */}
+          {isBannerExpanded && (
+            <ScrollView 
+              style={styles.pickupBannerScrollView}
+              contentContainerStyle={styles.pickupBannerScrollContent}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}>
               <View style={styles.pickupBannerContent}>
                 <View style={styles.pickupBannerRow}>
                   <Text style={styles.pickupBannerLabel}>Vehicle:</Text>
@@ -509,10 +593,10 @@ export default function HomeScreen() {
                   </View>
                 )}
               </View>
-            )}
-          </TouchableOpacity>
+            </ScrollView>
+          )}
           
-          {/* Action Button */}
+          {/* Action Button - Fixed at bottom */}
           {pickupStatus !== 'completed' && (
             <View style={styles.pickupActionButtonContainer}>
               {isProcessing ? (
@@ -524,13 +608,22 @@ export default function HomeScreen() {
                   onPress={handlePickupAction}
                   disabled={isProcessing}
                   style={styles.pickupActionButton}>
-                  {pickupStatus === 'pending' ? 'ARRIVED' : 'COMPLETED'}
+                  {pickupStatus === 'pending' ? 'ARRIVED' : 'DELIVERED'}
                 </GradientButton>
               )}
             </View>
           )}
-        </View>
+        </Animated.View>
       )}
+
+      {/* Custom Dialog */}
+      <CustomDialog
+        visible={dialog.visible}
+        title={dialog.title}
+        message={dialog.message}
+        buttons={dialog.buttons}
+        onDismiss={() => setDialog({...dialog, visible: false})}
+      />
     </View>
   );
 }
@@ -859,14 +952,23 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 16,
+    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
     ...SHADOWS.large,
   },
   pickupBannerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    paddingVertical: 8,
+  },
+  pickupBannerScrollView: {
+    flex: 1,
+    maxHeight: '70%', // Allow space for header and button
+  },
+  pickupBannerScrollContent: {
+    paddingBottom: 8,
   },
   pickupBannerTitle: {
     fontSize: 18,
@@ -880,7 +982,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   pickupBannerContent: {
-    gap: 8,
+    gap: 16,
+    paddingVertical: 8,
   },
   pickupBannerRow: {
     flexDirection: 'row',
@@ -903,5 +1006,15 @@ const styles = StyleSheet.create({
   pickupActionButton: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  dragHandleContainer: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
   },
 });

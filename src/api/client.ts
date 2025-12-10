@@ -3,6 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ACCESS_TOKEN_KEY = 'urbanease.accessToken';
 const REFRESH_TOKEN_KEY = 'urbanease.refreshToken';
+const SESSION_DATA_KEY = 'urbanease.sessionData';
+const SESSION_TIMESTAMP_KEY = 'urbanease.sessionTimestamp';
+
+const SESSION_DURATION_MS = 60 * 60 * 1000; // 1 hour in milliseconds
 
 export async function setStoredTokens(accessToken: string, refreshToken?: string) {
   await AsyncStorage.multiSet([
@@ -21,6 +25,62 @@ export async function getStoredTokens() {
     REFRESH_TOKEN_KEY,
   ]);
   return {accessToken: accessToken || null, refreshToken: refreshToken || null};
+}
+
+// Session persistence functions
+export async function setStoredSession(sessionData: {
+  accessToken: string;
+  refreshToken?: string;
+  driverName: string;
+}) {
+  const timestamp = Date.now().toString();
+  await AsyncStorage.multiSet([
+    [SESSION_DATA_KEY, JSON.stringify(sessionData)],
+    [SESSION_TIMESTAMP_KEY, timestamp],
+  ]);
+}
+
+export async function getStoredSession(): Promise<{
+  accessToken: string;
+  refreshToken?: string;
+  driverName: string;
+} | null> {
+  try {
+    const [[, sessionData], [, timestamp]] = await AsyncStorage.multiGet([
+      SESSION_DATA_KEY,
+      SESSION_TIMESTAMP_KEY,
+    ]);
+
+    if (!sessionData || !timestamp) {
+      return null;
+    }
+
+    const loginTime = parseInt(timestamp, 10);
+    const currentTime = Date.now();
+    const elapsed = currentTime - loginTime;
+
+    // Check if session has expired (more than 1 hour)
+    if (elapsed > SESSION_DURATION_MS) {
+      console.log('[Session] Session expired, clearing stored data');
+      await clearStoredSession();
+      return null;
+    }
+
+    console.log('[Session] Valid session found, expires in:', Math.floor((SESSION_DURATION_MS - elapsed) / 1000 / 60), 'minutes');
+    return JSON.parse(sessionData);
+  } catch (error) {
+    console.error('[Session] Error retrieving stored session:', error);
+    return null;
+  }
+}
+
+export async function clearStoredSession() {
+  await AsyncStorage.multiRemove([
+    SESSION_DATA_KEY,
+    SESSION_TIMESTAMP_KEY,
+    ACCESS_TOKEN_KEY,
+    REFRESH_TOKEN_KEY,
+  ]);
 }
 
 export type RequestOptions = {

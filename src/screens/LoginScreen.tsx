@@ -7,12 +7,12 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Alert,
 } from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {AuthStackParamList} from '../navigation/AppNavigator';
 import {sendOtp} from '../api/auth';
 import GradientButton from '../components/GradientButton';
+import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 
 export type LoginScreenProps = NativeStackScreenProps<
@@ -23,17 +23,38 @@ export type LoginScreenProps = NativeStackScreenProps<
 export default function LoginScreen({navigation}: LoginScreenProps) {
   const [phone, setPhone] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [dialog, setDialog] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    buttons: [],
+  });
 
   const onContinueOtp = async () => {
     const trimmed = phone.trim();
     
     if (!trimmed) {
-      Alert.alert('Error', 'Please enter your phone number');
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Please enter your phone number',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
       return;
     }
     
     if (trimmed.length < 10) {
-      Alert.alert('Error', 'Please enter a valid phone number');
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Please enter a valid phone number',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
       return;
     }
     
@@ -58,7 +79,12 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
         errorMessage = 'Network error. Please check your internet connection.';
       }
       
-      Alert.alert('Login Error', errorMessage);
+      setDialog({
+        visible: true,
+        title: 'Login Error',
+        message: errorMessage,
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     } finally {
       setSubmitting(false);
     }
@@ -97,6 +123,15 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
         <TouchableOpacity style={styles.secondaryButton} onPress={onTempToken}>
           <Text style={styles.secondaryButtonText}>Login with Temporary Token</Text>
         </TouchableOpacity>
+
+        {/* Custom Dialog */}
+        <CustomDialog
+          visible={dialog.visible}
+          title={dialog.title}
+          message={dialog.message}
+          buttons={dialog.buttons}
+          onDismiss={() => setDialog({...dialog, visible: false})}
+        />
       </View>
     </KeyboardAvoidingView>
   );
