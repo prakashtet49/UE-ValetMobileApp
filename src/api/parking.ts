@@ -146,3 +146,43 @@ export async function sendHandoverFeedbackTemplate(payload: {bookingId: string})
     true,
   );
 }
+
+export type ManualBookingRequest = {
+  customer_mobile: string;
+  keytag_uid: string;
+  customer_name?: string;
+};
+
+export type ManualBookingResponse = {
+  success: boolean;
+  message: string;
+  bookingId?: string;
+  parkingJobId?: string;
+  locationName?: string;
+};
+
+export async function startManualBooking(payload: ManualBookingRequest) {
+  return apiPost<ManualBookingResponse>(
+    '/api/manual-booking/start',
+    payload,
+    true,
+  );
+}
+
+export type CheckoutRequest = {
+  bookingId: string;
+};
+
+export type CheckoutResponse = {
+  success: boolean;
+  message: string;
+  bookingId: string;
+};
+
+export async function checkoutParking(payload: CheckoutRequest) {
+  return apiPost<CheckoutResponse>(
+    '/api/driver/parking/checkout',
+    payload,
+    true,
+  );
+}

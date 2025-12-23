@@ -1,5 +1,5 @@
 import React from 'react';
-import {TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle} from 'react-native';
+import {TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, Platform} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 
 type GradientButtonProps = {
@@ -36,16 +36,18 @@ const GradientButton: React.FC<GradientButtonProps> = ({
 
 const styles = StyleSheet.create({
   gradient: {
-    height: 52,
-    borderRadius: 26,
+    height: Platform.OS === 'ios' ? 56 : 52,
+    borderRadius: Platform.OS === 'ios' ? 28 : 26,
     justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
+    paddingHorizontal: Platform.OS === 'ios' ? 24 : 20,
   },
   text: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: Platform.OS === 'ios' ? 17 : 18,
     fontWeight: '600',
+    letterSpacing: Platform.OS === 'ios' ? -0.4 : 0,
   },
   disabled: {
     opacity: 0.5,

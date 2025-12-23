@@ -5,6 +5,7 @@ export type DriverProfile = {
   id: string;
   name: string;
   phone: string;
+  clientName?: string;
 };
 
 export type Location = {

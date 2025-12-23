@@ -39,7 +39,11 @@ export default function NewJobRequestScreen({
       setIsAccepting(true);
       console.log('[NewJobRequest] Accepting job', {jobId});
       await acceptJob(jobId);
-      navigation.goBack();
+      // Reset to Home screen to clear backstack
+      navigation.reset({
+        index: 0,
+        routes: [{name: 'Home'}],
+      });
     } catch (error) {
       console.error('[NewJobRequest] Failed to accept job', error);
     } finally {
@@ -60,7 +64,11 @@ export default function NewJobRequestScreen({
       setIsDeclining(true);
       console.log('[NewJobRequest] Declining job', {jobId, selectedReason});
       await declineJob(jobId, selectedReason);
-      navigation.goBack();
+      // Reset to Home screen to clear backstack
+      navigation.reset({
+        index: 0,
+        routes: [{name: 'Home'}],
+      });
     } catch (error) {
       console.error('[NewJobRequest] Failed to decline job', error);
     } finally {

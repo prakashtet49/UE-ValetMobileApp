@@ -6,7 +6,7 @@ const REFRESH_TOKEN_KEY = 'urbanease.refreshToken';
 const SESSION_DATA_KEY = 'urbanease.sessionData';
 const SESSION_TIMESTAMP_KEY = 'urbanease.sessionTimestamp';
 
-const SESSION_DURATION_MS = 60 * 60 * 1000; // 1 hour in milliseconds
+const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 export async function setStoredTokens(accessToken: string, refreshToken?: string) {
   await AsyncStorage.multiSet([
@@ -118,6 +118,10 @@ async function doFetch(path: string, options: RequestOptions = {}) {
   });
 
   try {
+    // Add timeout to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
     const response = await fetch(url, {
       method,
       headers: finalHeaders,
@@ -126,7 +130,10 @@ async function doFetch(path: string, options: RequestOptions = {}) {
           ? body
           : JSON.stringify(body)
         : undefined,
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     const text = await response.text();
     const json = text ? JSON.parse(text) : undefined;
@@ -139,11 +146,25 @@ async function doFetch(path: string, options: RequestOptions = {}) {
     });
 
     if (!response.ok) {
+      // Handle 401 Unauthorized - token expired or invalid
+      if (response.status === 401) {
+        console.log('[API] 401 Unauthorized - clearing session');
+        await clearStoredSession();
+        // The app will automatically redirect to login via AuthContext
+      }
       throw new ApiException(response.status, json?.message || 'API error', json);
     }
 
     return json;
-  } catch (error) {
+  } catch (error: any) {
+    // Provide more helpful error messages
+    if (error.name === 'AbortError') {
+      console.error('[API ERROR] Request timeout after 30 seconds:', {url, method});
+      throw new Error('Request timeout - server is not responding');
+    } else if (error.message === 'Network request failed') {
+      console.error('[API ERROR] Network request failed:', {url, method});
+      throw new Error('Cannot connect to server. Please check your internet connection or try again later.');
+    }
     console.error('[API ERROR]', {url, method, error});
     throw error;
   }

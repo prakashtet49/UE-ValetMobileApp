@@ -4,7 +4,9 @@ export type ActiveJob = {
   id: string;
   vehicleNumber: string;
   tagNumber: string;
+  customerPhone?: string;
   locationName: string;
+  locationDescription?: string;
   slotOrZone: string;
   parkedAt: string;
   hasPhotos: boolean;
@@ -63,4 +65,30 @@ export async function acceptJob(jobId: string) {
 export async function declineJob(jobId: string, reason: string) {
   console.log('[JobsApi] Declining job', {jobId, reason});
   return apiPost<unknown>(`/api/v1/jobs/${jobId}/decline`, {reason}, true);
+}
+
+export type CompletedJob = {
+  id: string;
+  bookingId: string;
+  parkingJobId: string;
+  vehicleNumber: string;
+  tagNumber: string;
+  customerPhone: string;
+  bookingStatus: string;
+  slotOrZone: string;
+  locationDescription: string;
+  duration: string;
+};
+
+export type CompletedJobsResponse = {
+  success: boolean;
+  count: number;
+  data: CompletedJob[];
+};
+
+export async function getCompletedJobs(limit = 50, offset = 0) {
+  return apiGet<CompletedJobsResponse>(
+    `/api/v1/jobs/completed?limit=${limit}&offset=${offset}`,
+    true,
+  );
 }

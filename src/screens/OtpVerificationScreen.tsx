@@ -23,7 +23,7 @@ export type OtpVerificationScreenProps = NativeStackScreenProps<
 >;
 
 export default function OtpVerificationScreen({route}: OtpVerificationScreenProps) {
-  const {phone} = route.params;
+  const {phone, password, isPasswordLogin} = route.params;
   const [otp, setOtp] = useState('');
   const [resendTimer, setResendTimer] = useState(30);
   const [canResend, setCanResend] = useState(false);
@@ -31,25 +31,39 @@ export default function OtpVerificationScreen({route}: OtpVerificationScreenProp
   const [showSnackbar, setShowSnackbar] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarType, setSnackbarType] = useState<'success' | 'error' | 'info'>('info');
-  const {loginWithPhoneOtp, loading} = useAuth();
+  const {loginWithPhoneOtp, loginWithPasswordAuth, loading} = useAuth();
 
-  // Countdown timer for resend OTP
+  // Auto-submit for password-based login
   useEffect(() => {
-    if (resendTimer > 0) {
+    if (isPasswordLogin && password) {
+      // Automatically verify with password
+      onVerify();
+    }
+  }, []);
+
+  // Countdown timer for resend OTP (only for OTP flow)
+  useEffect(() => {
+    if (!isPasswordLogin && resendTimer > 0) {
       const timer = setTimeout(() => {
         setResendTimer(resendTimer - 1);
       }, 1000);
       return () => clearTimeout(timer);
-    } else {
+    } else if (!isPasswordLogin) {
       setCanResend(true);
     }
-  }, [resendTimer]);
+  }, [resendTimer, isPasswordLogin]);
 
   const onVerify = async () => {
-    if (otp.length !== 4) {
-      return;
+    // For password-based login (valet_billing), use password
+    if (isPasswordLogin && password) {
+      await loginWithPasswordAuth(phone, password);
+    } else {
+      // Normal OTP flow
+      if (otp.length !== 4) {
+        return;
+      }
+      await loginWithPhoneOtp(phone, otp);
     }
-    await loginWithPhoneOtp(phone, otp);
   };
 
   const onResendOtp = async () => {
@@ -85,38 +99,52 @@ export default function OtpVerificationScreen({route}: OtpVerificationScreenProp
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.inner}>
-        <Text style={styles.title}>Verify OTP</Text>
-        <Text style={styles.subtitle}>We sent an OTP to {phone}</Text>
+        {isPasswordLogin ? (
+          <>
+            <Text style={styles.title}>Logging In</Text>
+            <Text style={styles.subtitle}>Please wait while we verify your credentials...</Text>
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={COLORS.gradientEnd} />
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.title}>Verify OTP</Text>
+            <Text style={styles.subtitle}>We sent an OTP to {phone}</Text>
 
-        <TextInput
-          style={styles.input}
-          placeholder="0000"
-          placeholderTextColor="#888"
-          keyboardType="number-pad"
-          maxLength={4}
-          value={otp}
-          onChangeText={setOtp}
-        />
+            <TextInput
+              style={styles.input}
+              placeholder="· · · ·"
+              placeholderTextColor="#888"
+              keyboardType="number-pad"
+              maxLength={7}
+              value={otp.split('').join(' ')}
+              onChangeText={(text) => setOtp(text.replace(/\s/g, ''))}
+              textAlign="center"
+              textAlignVertical="center"
+            />
 
-        <GradientButton
-          onPress={onVerify}
-          disabled={loading}
-          style={styles.primaryButton}>
-          {loading ? 'Verifying...' : 'Verify'}
-        </GradientButton>
+            <GradientButton
+              onPress={onVerify}
+              disabled={loading}
+              style={styles.primaryButton}>
+              {loading ? 'Verifying...' : 'Verify'}
+            </GradientButton>
 
-        <TouchableOpacity
-          style={[styles.linkButton, !canResend && styles.linkButtonDisabled]}
-          onPress={onResendOtp}
-          disabled={!canResend || resending}>
-          {resending ? (
-            <ActivityIndicator size="small" color="#a5b4fc" />
-          ) : (
-            <Text style={[styles.linkText, !canResend && styles.linkTextDisabled]}>
-              {canResend ? 'Resend OTP' : `Resend OTP in ${resendTimer}s`}
-            </Text>
-          )}
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.linkButton, !canResend && styles.linkButtonDisabled]}
+              onPress={onResendOtp}
+              disabled={!canResend || resending}>
+              {resending ? (
+                <ActivityIndicator size="small" color="#a5b4fc" />
+              ) : (
+                <Text style={[styles.linkText, !canResend && styles.linkTextDisabled]}>
+                  {canResend ? 'Resend OTP' : `Resend OTP in ${resendTimer}s`}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       <Snackbar
@@ -154,18 +182,19 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   input: {
-    height: 64,
+    height: Platform.OS === 'ios' ? 72 : 64,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    paddingHorizontal: 16,
+    paddingHorizontal: Platform.OS === 'ios' ? 20 : 16,
+    paddingVertical: Platform.OS === 'ios' ? 18 : 0,
     marginBottom: 16,
     color: COLORS.textPrimary,
     backgroundColor: COLORS.white,
     textAlign: 'center',
-    letterSpacing: 12,
-    fontSize: 24,
+    fontSize: Platform.OS === 'ios' ? 34 : 32,
     fontWeight: '600',
+    letterSpacing: Platform.OS === 'ios' ? 8 : 6,
     ...SHADOWS.small,
   },
   primaryButton: {
@@ -187,5 +216,10 @@ const styles = StyleSheet.create({
   },
   linkTextDisabled: {
     color: COLORS.textLight,
+  },
+  loadingContainer: {
+    marginTop: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

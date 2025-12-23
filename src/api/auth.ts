@@ -7,6 +7,7 @@ export type SendOtpRequest = {
 export type SendOtpResponse = {
   message: string;
   sessionId: string;
+  role?: 'valet' | 'client_admin' | 'super_admin' | 'valet_billing';
 };
 
 export type VerifyOtpRequest = {
@@ -21,7 +22,23 @@ export type VerifyOtpResponse = {
   user: {
     id: string;
     phone: string;
-    role: 'valet' | 'client_admin' | 'super_admin';
+    role: 'valet' | 'client_admin' | 'super_admin' | 'valet_billing';
+  };
+};
+
+export type LoginWithPasswordRequest = {
+  phone: string;
+  password: string;
+};
+
+export type LoginWithPasswordResponse = {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: {
+    id: string;
+    phone: string;
+    role: 'valet_billing';
   };
 };
 
@@ -40,6 +57,10 @@ export async function sendOtp(payload: SendOtpRequest) {
 
 export async function verifyOtp(payload: VerifyOtpRequest) {
   return apiPost<VerifyOtpResponse>('/api/v1/auth/verify-otp', payload, false);
+}
+
+export async function loginWithPassword(payload: LoginWithPasswordRequest) {
+  return apiPost<LoginWithPasswordResponse>('/api/v1/auth/login-password', payload, false);
 }
 
 export async function refreshAccessToken(payload: RefreshTokenRequest) {

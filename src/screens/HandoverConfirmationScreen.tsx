@@ -119,12 +119,18 @@ export default function HandoverConfirmationScreen() {
         <View style={styles.buttonsRow}>
           <TouchableOpacity
             style={styles.secondaryButton}
-            onPress={() => navigation.navigate('PendingPickups')}>
+            onPress={() => navigation.reset({
+              index: 0,
+              routes: [{name: 'PendingPickups'}],
+            })}>
             <Text style={styles.secondaryButtonText}>Back to pickups</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={() => navigation.navigate('Home')}>
+            onPress={() => navigation.reset({
+              index: 0,
+              routes: [{name: 'Home'}],
+            })}>
             <Text style={styles.primaryButtonText}>Back to home</Text>
           </TouchableOpacity>
         </View>

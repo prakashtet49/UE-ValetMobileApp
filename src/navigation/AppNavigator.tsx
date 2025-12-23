@@ -23,16 +23,18 @@ import OverrideHandoverScreen from '../screens/OverrideHandoverScreen';
 import HandoverConfirmationScreen from '../screens/HandoverConfirmationScreen';
 import IncidentReportScreen from '../screens/IncidentReportScreen';
 import PerformanceStatsScreen from '../screens/PerformanceStatsScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+import BillingScreen from '../screens/BillingScreen';
 
 export type AuthStackParamList = {
   Splash: undefined;
   Login: undefined;
   TemporaryAccess: undefined;
-  OtpVerification: {phone: string};
+  OtpVerification: {phone: string; password?: string; isPasswordLogin?: boolean};
 };
 
 export type AppStackParamList = {
-  Home: {activePickupJob?: any} | undefined;
+  Home: {activePickupJob?: any; checkoutSuccess?: boolean; bookingId?: string} | undefined;
   ActiveJobs: undefined;
   PendingParking: undefined;
   StartParking: undefined;
@@ -58,17 +60,33 @@ export type AppStackParamList = {
     keyTagCode?: string | null;
   };
   PerformanceStats: undefined;
+  Profile: undefined;
+};
+
+export type BillingStackParamList = {
+  Billing: undefined;
+  Profile: undefined;
 };
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
+const BillingStack = createNativeStackNavigator<BillingStackParamList>();
 
 function AuthStackNavigator() {
   return (
-    <AuthStack.Navigator initialRouteName="Splash" screenOptions={{headerShown: false}}>
+    <AuthStack.Navigator 
+      initialRouteName="Splash" 
+      screenOptions={{
+        headerShown: false,
+        animation: 'fade',
+        animationDuration: 300,
+      }}>
       <AuthStack.Screen
         name="Splash"
         component={SplashScreen}
+        options={{
+          animation: 'none',
+        }}
       />
       <AuthStack.Screen
         name="Login"
@@ -88,7 +106,14 @@ function AuthStackNavigator() {
 
 function AppStackNavigator() {
   return (
-    <AppStack.Navigator screenOptions={{headerShown: false}}>
+    <AppStack.Navigator 
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+        animationDuration: 300,
+        gestureEnabled: true,
+        gestureDirection: 'horizontal',
+      }}>
       <AppStack.Screen
         name="Home"
         component={HomeScreen}
@@ -121,7 +146,9 @@ function AppStackNavigator() {
         name="NewJobRequest"
         component={NewJobRequestScreen}
         options={{
-          presentation: 'fullScreenModal',
+          presentation: 'transparentModal',
+          animation: 'fade',
+          animationDuration: 200,
         }}
       />
       <AppStack.Screen
@@ -156,7 +183,33 @@ function AppStackNavigator() {
         name="PerformanceStats"
         component={PerformanceStatsScreen}
       />
+      <AppStack.Screen
+        name="Profile"
+        component={ProfileScreen}
+      />
     </AppStack.Navigator>
+  );
+}
+
+function BillingStackNavigator() {
+  return (
+    <BillingStack.Navigator 
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+        animationDuration: 300,
+        gestureEnabled: true,
+        gestureDirection: 'horizontal',
+      }}>
+      <BillingStack.Screen
+        name="Billing"
+        component={BillingScreen}
+      />
+      <BillingStack.Screen
+        name="Profile"
+        component={ProfileScreen}
+      />
+    </BillingStack.Navigator>
   );
 }
 
@@ -174,9 +227,25 @@ export default function AppNavigator() {
     );
   }
 
+  // Determine which stack to show based on user role
+  const getUserStack = () => {
+    if (!session) {
+      return <AuthStackNavigator />;
+    }
+    
+    // Check user role from session
+    const userRole = session.user?.role;
+    
+    if (userRole === 'valet_billing') {
+      return <BillingStackNavigator />;
+    }
+    
+    return <AppStackNavigator />;
+  };
+
   return (
     <NavigationContainer ref={navigationRef}>
-      {session ? <AppStackNavigator /> : <AuthStackNavigator />}
+      {getUserStack()}
     </NavigationContainer>
   );
 }

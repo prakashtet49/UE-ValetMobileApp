@@ -1,12 +1,21 @@
 import React, {createContext, ReactNode, useContext, useState, useEffect} from 'react';
-import {verifyOtp} from '../api/auth';
-import {tempLogin} from '../api/driver';
+import {verifyOtp, loginWithPassword} from '../api/auth';
+import {tempLogin, getDriverProfile} from '../api/driver';
 import {clearStoredTokens, setStoredTokens, setStoredSession, getStoredSession, clearStoredSession} from '../api/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {initializeFCM, clearFCMToken} from '../services/notificationService';
+
+const DRIVER_PROFILE_KEY = 'urbanease.driverProfile';
 
 export type Session = {
   accessToken: string;
   refreshToken?: string;
   driverName: string;
+  user?: {
+    id: string;
+    phone: string;
+    role: 'valet' | 'client_admin' | 'super_admin' | 'valet_billing';
+  };
 };
 
 type AuthContextValue = {
@@ -15,6 +24,7 @@ type AuthContextValue = {
   initializing: boolean;
   error: string | null;
   loginWithPhoneOtp: (phone: string, otp: string) => Promise<void>;
+  loginWithPasswordAuth: (phone: string, password: string) => Promise<void>;
   loginWithTempToken: (token: string) => Promise<boolean>;
   logout: () => void;
   clearError: () => void;
@@ -50,19 +60,50 @@ export function AuthProvider({children}: {children: ReactNode}) {
     initializeSession();
   }, []);
 
+  // Periodically check if session is still valid
+  useEffect(() => {
+    const checkSessionInterval = setInterval(async () => {
+      if (session) {
+        const storedSession = await getStoredSession();
+        if (!storedSession) {
+          console.log('[Auth] Session expired or cleared, logging out');
+          setSession(null);
+        }
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(checkSessionInterval);
+  }, [session]);
+
   async function loginWithPhoneOtp(phone: string, otp: string) {
     setLoading(true);
+    setError(null);
     try {
+      console.log('[Auth] Verifying OTP for:', phone);
       const response = await verifyOtp({phone, token: otp});
       await setStoredTokens(response.accessToken, response.refreshToken);
 
-      const driverName =
-        response.user.role === 'valet' ? 'Valet Driver' : response.user.role;
+      // Fetch driver profile to get actual name
+      let driverName = 'Valet Driver';
+      try {
+        console.log('[Auth] Fetching driver profile...');
+        const profile = await getDriverProfile();
+        driverName = profile.name;
+        
+        // Cache profile in AsyncStorage
+        await AsyncStorage.setItem(DRIVER_PROFILE_KEY, JSON.stringify(profile));
+        console.log('[Auth] Driver profile cached:', profile.name);
+      } catch (profileError) {
+        console.error('[Auth] Failed to fetch driver profile:', profileError);
+        // Fallback to role-based name
+        driverName = response.user.role === 'valet' ? 'Valet Driver' : response.user.role;
+      }
 
       const sessionData = {
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
         driverName,
+        user: response.user,
       };
 
       // Store session with timestamp for persistence
@@ -70,6 +111,65 @@ export function AuthProvider({children}: {children: ReactNode}) {
       setSession(sessionData);
 
       console.log('[Auth] Session stored, valid for 1 hour');
+      
+      // Register FCM token with backend after successful login
+      try {
+        await initializeFCM();
+        console.log('[Auth] FCM token registered after login');
+      } catch (fcmError) {
+        console.error('[Auth] Failed to register FCM token:', fcmError);
+        // Don't fail login if FCM registration fails
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loginWithPasswordAuth(phone: string, password: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      console.log('[Auth] Logging in with password for:', phone);
+      const response = await loginWithPassword({phone, password});
+      await setStoredTokens(response.accessToken, response.refreshToken);
+
+      // Fetch driver profile to get actual name
+      let driverName = 'Billing User';
+      try {
+        console.log('[Auth] Fetching driver profile...');
+        const profile = await getDriverProfile();
+        driverName = profile.name;
+        
+        // Cache profile in AsyncStorage
+        await AsyncStorage.setItem(DRIVER_PROFILE_KEY, JSON.stringify(profile));
+        console.log('[Auth] Driver profile cached:', profile.name);
+      } catch (profileError) {
+        console.error('[Auth] Failed to fetch driver profile:', profileError);
+        // Fallback to role-based name
+        driverName = 'Billing User';
+      }
+
+      const sessionData = {
+        accessToken: response.accessToken,
+        refreshToken: response.refreshToken,
+        driverName,
+        user: response.user,
+      };
+
+      // Store session with timestamp for persistence
+      await setStoredSession(sessionData);
+      setSession(sessionData);
+
+      console.log('[Auth] Session stored, valid for 1 hour');
+      
+      // Register FCM token with backend after successful login
+      try {
+        await initializeFCM();
+        console.log('[Auth] FCM token registered after login');
+      } catch (fcmError) {
+        console.error('[Auth] Failed to register FCM token:', fcmError);
+        // Don't fail login if FCM registration fails
+      }
     } finally {
       setLoading(false);
     }
@@ -95,6 +195,16 @@ export function AuthProvider({children}: {children: ReactNode}) {
         setSession(sessionData);
 
         console.log('[Auth] Temp session stored, valid for 1 hour');
+        
+        // Register FCM token with backend after successful login
+        try {
+          await initializeFCM();
+          console.log('[Auth] FCM token registered after temp login');
+        } catch (fcmError) {
+          console.error('[Auth] Failed to register FCM token:', fcmError);
+          // Don't fail login if FCM registration fails
+        }
+        
         return true;
       } else {
         setError('Invalid token. Please check and try again.');
@@ -125,6 +235,17 @@ export function AuthProvider({children}: {children: ReactNode}) {
     console.log('[Auth] Logging out and clearing stored session');
     setSession(null);
     await clearStoredSession();
+    // Clear cached driver profile
+    await AsyncStorage.removeItem(DRIVER_PROFILE_KEY);
+    console.log('[Auth] Driver profile cache cleared');
+    
+    // Clear FCM token on logout
+    try {
+      await clearFCMToken();
+      console.log('[Auth] FCM token cleared on logout');
+    } catch (fcmError) {
+      console.error('[Auth] Failed to clear FCM token:', fcmError);
+    }
   }
 
   function clearError() {
@@ -133,7 +254,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
 
   return (
     <AuthContext.Provider
-      value={{session, loading, initializing, error, loginWithPhoneOtp, loginWithTempToken, logout, clearError}}>
+      value={{session, loading, initializing, error, loginWithPhoneOtp, loginWithPasswordAuth, loginWithTempToken, logout, clearError}}>
       {children}
     </AuthContext.Provider>
   );

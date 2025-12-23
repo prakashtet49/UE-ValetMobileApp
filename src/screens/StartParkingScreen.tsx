@@ -11,12 +11,14 @@ import {
   Image,
   ActivityIndicator,
   PermissionsAndroid,
+  Switch,
 } from 'react-native';
+import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../utils/responsive';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {launchCamera} from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
-import {startParking, uploadParkingPhotos, completeParking} from '../api/parking';
+import {startParking, uploadParkingPhotos, completeParking, startManualBooking} from '../api/parking';
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import BackButton from '../components/BackButton';
 import GradientButton from '../components/GradientButton';
@@ -39,7 +41,11 @@ export default function StartParkingScreen() {
   const [verifyingKeyTag, setVerifyingKeyTag] = useState(false);
   const [keyTagVerified, setKeyTagVerified] = useState(false);
   const [parkingJobId, setParkingJobId] = useState<string | null>(null);
+  const [locationName, setLocationName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [isManualPark, setIsManualPark] = useState(false);
+  const [customerMobile, setCustomerMobile] = useState('');
+  const [submittingManual, setSubmittingManual] = useState(false);
   const [dialog, setDialog] = useState<{
     visible: boolean;
     title: string;
@@ -181,30 +187,6 @@ export default function StartParkingScreen() {
     }
   };
 
-  const handleAddPhotos = () => {
-    if (!keyTagVerified) {
-      setDialog({
-        visible: true,
-        title: 'Info',
-        message: 'Please verify key tag first before adding photos',
-        buttons: [{text: 'OK', style: 'default'}],
-      });
-      return;
-    }
-    // Find first empty slot
-    const emptyIndex = photos.findIndex(p => p === null);
-    if (emptyIndex !== -1) {
-      handleTakePhoto(emptyIndex);
-    } else {
-      setDialog({
-        visible: true,
-        title: 'Info',
-        message: 'All photo slots are filled. Click on a photo to replace it.',
-        buttons: [{text: 'OK', style: 'default'}],
-      });
-    }
-  };
-
   const handleVerifyKeyTag = async () => {
     if (!keyTagCode.trim()) {
       setError('Please enter the key tag code');
@@ -213,8 +195,12 @@ export default function StartParkingScreen() {
     setVerifyingKeyTag(true);
     setError(null);
     try {
-      const response = await startParking(keyTagCode.trim());
+      // Concatenate UE prefix with the numeric code
+      const fullKeyTagCode = `UE${keyTagCode.trim()}`;
+      console.log('[StartParking] Verifying key tag:', fullKeyTagCode);
+      const response = await startParking(fullKeyTagCode);
       setParkingJobId(response.parkingJobId);
+      setLocationName(response.locationName);
       setKeyTagVerified(true);
       setError(null);
     } catch (error) {
@@ -223,6 +209,63 @@ export default function StartParkingScreen() {
       setKeyTagVerified(false);
     } finally {
       setVerifyingKeyTag(false);
+    }
+  };
+
+  const handleManualBooking = async () => {
+    if (!customerMobile.trim()) {
+      setError('Please enter customer mobile number');
+      return;
+    }
+    if (!keyTagCode.trim()) {
+      setError('Please enter the key tag code');
+      return;
+    }
+    
+    // Validate mobile number (10 digits)
+    const mobileRegex = /^[0-9]{10}$/;
+    if (!mobileRegex.test(customerMobile.trim())) {
+      setError('Please enter a valid 10-digit mobile number');
+      return;
+    }
+    
+    setSubmittingManual(true);
+    setError(null);
+    try {
+      const fullKeyTagCode = `UE${keyTagCode.trim()}`;
+      const response = await startManualBooking({
+        customer_mobile: `91${customerMobile.trim()}`,
+        keytag_uid: fullKeyTagCode,
+        customer_name: 'GUEST',
+      });
+      
+      console.log('Manual booking started:', response);
+      
+      // Set as verified so rest of the fields become enabled
+      setKeyTagVerified(true);
+      setParkingJobId(response.parkingJobId || response.bookingId || 'manual-booking');
+      setLocationName(response.locationName || 'the location');
+      setError(null);
+      
+      // Show success message but don't navigate back
+      setDialog({
+        visible: true,
+        title: 'Success',
+        message: response.message || 'Manual booking created successfully! Please continue with vehicle details.',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
+    } catch (error: any) {
+      console.error('Failed to create manual booking:', error);
+      const errorMessage = error?.body?.message || error?.message || 'Failed to create manual booking. Please try again.';
+      setError(errorMessage);
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: errorMessage,
+        buttons: [{text: 'OK', style: 'default'}],
+      });
+    } finally {
+      setSubmittingManual(false);
     }
   };
 
@@ -256,7 +299,7 @@ export default function StartParkingScreen() {
       setDialog({
         visible: true,
         title: 'Success',
-        message: `Vehicle ${response.vehicleNumber} parked successfully in ${response.slotOrZone}!`,
+        message: `Thank you for parking at ${locationName}. Vehicle ${response.vehicleNumber} parked successfully!`,
         buttons: [{text: 'OK', onPress: () => navigation.goBack(), style: 'default'}],
       });
     } catch (error: any) {
@@ -282,6 +325,17 @@ export default function StartParkingScreen() {
         <View style={styles.headerLogoContainer}>
           <Image source={urbaneaseLogo} style={styles.headerLogo} />
         </View>
+        {/* Manual Park Toggle in Header */}
+        <View style={styles.headerToggle}>
+          <Text style={styles.headerToggleLabel}>Manual{'\n'}Park</Text>
+          <Switch
+            value={isManualPark}
+            onValueChange={setIsManualPark}
+            trackColor={{false: '#d1d5db', true: '#76D0E3'}}
+            thumbColor={isManualPark ? '#3156D8' : '#f3f4f6'}
+            style={styles.headerSwitch}
+          />
+        </View>
       </View>
 
       <KeyboardAvoidingView
@@ -302,40 +356,98 @@ export default function StartParkingScreen() {
               <Text style={styles.iconText}>UE</Text>
             </LinearGradient>
             <TextInput
-              style={styles.input}
-              placeholder="Key Tag Code"
-              placeholderTextColor="#9ca3af"
-              autoCapitalize="characters"
-              value={keyTagCode}
-              onChangeText={text => setKeyTagCode(text.toUpperCase())}
-              editable={!keyTagVerified}
-            />
-            <TouchableOpacity
               style={[
-                styles.submitArrow,
-                keyTagVerified && styles.submitArrowSuccess,
+                styles.input,
+                isManualPark && styles.inputFullRadius,
               ]}
-              onPress={handleVerifyKeyTag}
-              disabled={verifyingKeyTag || keyTagVerified || !keyTagCode.trim()}>
-              {keyTagVerified ? (
-                <View style={styles.submitArrowSuccess}>
-                  <Text style={styles.submitArrowText}>✓</Text>
-                </View>
-              ) : (
-                <LinearGradient
-                  colors={['#76D0E3', '#3156D8']}
-                  start={{x: 0, y: 0}}
-                  end={{x: 1, y: 1}}
-                  style={styles.submitArrowGradient}>
-                  {verifyingKeyTag ? (
-                    <Text style={styles.submitArrowText}>⏳</Text>
-                  ) : (
-                    <Image source={arrowRightIcon} style={styles.arrowIcon} />
-                  )}
-                </LinearGradient>
-              )}
-            </TouchableOpacity>
+              placeholder="00001"
+              placeholderTextColor="#9ca3af"
+              keyboardType="numeric"
+              value={keyTagCode}
+              onChangeText={text => {
+                // Only allow numbers and limit to 5 digits
+                const numericText = text.replace(/[^0-9]/g, '').slice(0, 5);
+                setKeyTagCode(numericText);
+              }}
+              editable={isManualPark ? !keyTagVerified : !keyTagVerified}
+              maxLength={5}
+            />
+            {!isManualPark && (
+              <TouchableOpacity
+                style={[
+                  styles.submitArrow,
+                  keyTagVerified && styles.submitArrowSuccess,
+                ]}
+                onPress={handleVerifyKeyTag}
+                disabled={verifyingKeyTag || keyTagVerified || !keyTagCode.trim()}>
+                {keyTagVerified ? (
+                  <View style={styles.submitArrowSuccess}>
+                    <Text style={styles.submitArrowText}>✓</Text>
+                  </View>
+                ) : (
+                  <LinearGradient
+                    colors={['#76D0E3', '#3156D8']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 1}}
+                    style={styles.submitArrowGradient}>
+                    {verifyingKeyTag ? (
+                      <Text style={styles.submitArrowText}>⏳</Text>
+                    ) : (
+                      <Image source={arrowRightIcon} style={styles.arrowIcon} />
+                    )}
+                  </LinearGradient>
+                )}
+              </TouchableOpacity>
+            )}
           </View>
+
+          {/* Customer Mobile Number Input (Manual Park Only) */}
+          {isManualPark && (
+            <View style={styles.inputContainer}>
+              <LinearGradient
+                colors={['#76D0E3', '#3156D8']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={styles.inputIcon}>
+                <Text style={styles.iconText}>+91</Text>
+              </LinearGradient>
+              <TextInput
+                style={styles.input}
+                placeholder="Mobile Number"
+                placeholderTextColor="#9ca3af"
+                keyboardType="phone-pad"
+                value={customerMobile}
+                onChangeText={text => {
+                  // Only allow numbers and limit to 10 digits
+                  const numericText = text.replace(/[^0-9]/g, '').slice(0, 10);
+                  setCustomerMobile(numericText);
+                }}
+                maxLength={10}
+                editable={!keyTagVerified}
+              />
+              {!keyTagVerified && (
+                <TouchableOpacity
+                  style={[
+                    styles.submitArrow,
+                    submittingManual && styles.submitArrowDisabled,
+                  ]}
+                  onPress={handleManualBooking}
+                  disabled={submittingManual || !keyTagCode.trim() || !customerMobile.trim()}>
+                  <LinearGradient
+                    colors={['#76D0E3', '#3156D8']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 1}}
+                    style={styles.submitArrowGradient}>
+                    {submittingManual ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Image source={arrowRightIcon} style={styles.arrowIcon} />
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
 
           {/* Vehicle Number Input */}
           <View style={styles.inputContainer}>
@@ -368,21 +480,7 @@ export default function StartParkingScreen() {
             />
           </View>
 
-          {/* Add Photos Button */}
-          <TouchableOpacity
-            style={styles.photoButton}
-            onPress={handleAddPhotos}>
-            <LinearGradient
-              colors={['#76D0E3', '#3156D8']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              style={styles.photoIconContainer}>
-              <Text style={styles.photoIcon}>📷</Text>
-            </LinearGradient>
-            <Text style={styles.photoButtonText}>Add Photos</Text>
-          </TouchableOpacity>
-
-          {/* Photo Preview */}
+          {/* Photo Cards */}
           <View style={styles.photoPreviewContainer}>
             {photos.map((photo, index) => (
               <TouchableOpacity
@@ -457,11 +555,12 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: COLORS.white,
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 20,
+    paddingHorizontal: getResponsiveSpacing(20),
+    paddingTop: verticalScale(50),
+    paddingBottom: verticalScale(12),
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     ...SHADOWS.small,
   },
   headerLogoContainer: {
@@ -469,12 +568,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: -30,
   },
   headerLogo: {
-    height: 40,
-    width: 150,
+    height: verticalScale(40),
+    width: moderateScale(150),
     resizeMode: 'contain',
+  },
+  headerToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headerToggleLabel: {
+    fontSize: getResponsiveFontSize(12),
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+    lineHeight: verticalScale(16),
+  },
+  headerSwitch: {
+    transform: [{scaleX: 0.9}, {scaleY: 0.9}],
   },
   content: {
     flex: 1,
@@ -484,44 +597,48 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+    padding: getResponsiveSpacing(20),
+    paddingBottom: verticalScale(40),
   },
   inputContainer: {
-    marginBottom: 16,
+    marginBottom: verticalScale(16),
     flexDirection: 'row',
     alignItems: 'center',
   },
   inputIcon: {
-    width: 60,
-    height: 56,
-    borderTopLeftRadius: 16,
-    borderBottomLeftRadius: 16,
+    width: moderateScale(60),
+    height: verticalScale(56),
+    borderTopLeftRadius: moderateScale(16),
+    borderBottomLeftRadius: moderateScale(16),
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: -1,
   },
   iconText: {
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     fontWeight: '700',
     color: COLORS.white,
   },
   input: {
     flex: 1,
-    height: 56,
+    height: verticalScale(56),
     backgroundColor: COLORS.white,
-    paddingHorizontal: 16,
-    fontSize: 16,
+    paddingHorizontal: getResponsiveSpacing(16),
+    fontSize: getResponsiveFontSize(16),
     color: COLORS.textPrimary,
     ...SHADOWS.small,
   },
+  inputFullRadius: {
+    borderTopRightRadius: moderateScale(16),
+    borderBottomRightRadius: moderateScale(16),
+  },
   inputFull: {
     flex: 1,
-    height: 56,
+    height: verticalScale(56),
     backgroundColor: COLORS.white,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    fontSize: 16,
+    borderRadius: moderateScale(16),
+    paddingHorizontal: getResponsiveSpacing(16),
+    fontSize: getResponsiveFontSize(16),
     color: COLORS.textPrimary,
     ...SHADOWS.small,
   },
@@ -530,67 +647,46 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   submitArrow: {
-    width: 56,
-    height: 56,
-    borderTopRightRadius: 16,
-    borderBottomRightRadius: 16,
+    width: moderateScale(56),
+    height: verticalScale(56),
+    borderTopRightRadius: moderateScale(16),
+    borderBottomRightRadius: moderateScale(16),
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: -1,
     overflow: 'hidden',
   },
   submitArrowGradient: {
-    width: 56,
-    height: 56,
+    width: moderateScale(56),
+    height: verticalScale(56),
     justifyContent: 'center',
     alignItems: 'center',
   },
   submitArrowSuccess: {
     backgroundColor: COLORS.success,
-    width: 56,
-    height: 56,
+    width: moderateScale(56),
+    height: verticalScale(56),
     justifyContent: 'center',
     alignItems: 'center',
   },
   submitArrowText: {
-    fontSize: 24,
+    fontSize: getResponsiveFontSize(24),
     color: COLORS.white,
   },
   arrowIcon: {
-    width: 24,
-    height: 24,
+    width: moderateScale(24),
+    height: moderateScale(24),
     tintColor: COLORS.white,
-  },
-  photoButton: {
-    alignItems: 'center',
-    marginVertical: 24,
-  },
-  photoIconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-    ...SHADOWS.medium,
-  },
-  photoIcon: {
-    fontSize: 48,
-  },
-  photoButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.gradientEnd,
   },
   photoPreviewContainer: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
+    gap: moderateScale(12),
+    marginBottom: verticalScale(20),
   },
   photoPlaceholder: {
     flex: 1,
     aspectRatio: 1,
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
     overflow: 'hidden',
     backgroundColor: COLORS.border,
     ...SHADOWS.small,
@@ -607,11 +703,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
   photoEmptyIcon: {
-    fontSize: 32,
-    marginBottom: 4,
+    fontSize: getResponsiveFontSize(32),
+    marginBottom: verticalScale(4),
   },
   photoEmptyText: {
-    fontSize: 12,
+    fontSize: getResponsiveFontSize(12),
     fontWeight: '600',
     color: COLORS.textSecondary,
   },
@@ -624,12 +720,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
   },
   errorText: {
     color: COLORS.error,
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: verticalScale(12),
+  },
+  submitArrowDisabled: {
+    opacity: 0.5,
   },
 });

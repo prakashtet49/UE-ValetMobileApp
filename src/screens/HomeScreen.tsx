@@ -12,6 +12,7 @@ import {
   Dimensions,
   PanResponder,
 } from 'react-native';
+import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../utils/responsive';
 import {useNavigation, useFocusEffect, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
@@ -27,14 +28,15 @@ import GradientButton from '../components/GradientButton';
 import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {useValetRealtime} from '../hooks/useValetRealtime';
+import {fetchWeatherData, getFallbackWeather, type WeatherData} from '../services/weatherService';
 
 const parkIcon = require('../assets/icons/park_icon.png');
 const carParkingIcon = require('../assets/icons/car_parking.png');
 const deliveredIcon = require('../assets/icons/delivered.png');
 const activeJobsIcon = require('../assets/icons/active_jobs.png');
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
-const logoutIcon = require('../assets/icons/logout.png');
 const locationIcon = require('../assets/icons/location.png');
+const slotIcon = require('../assets/icons/slot.png');
 
 type TodayStats = {
   parkedCount: number;
@@ -76,6 +78,7 @@ export default function HomeScreen() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  const [changingLocation, setChangingLocation] = useState(false);
   const [dialog, setDialog] = useState<{
     visible: boolean;
     title: string;
@@ -90,6 +93,20 @@ export default function HomeScreen() {
   const [bannerHeight] = useState(new Animated.Value(0));
   const [isFullScreen, setIsFullScreen] = useState(false);
   const screenHeight = Dimensions.get('window').height;
+  const [parkButtonScale] = useState(new Animated.Value(1));
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  
+  // Floating shapes animation
+  const [shape1] = useState(new Animated.ValueXY({x: 50, y: 100}));
+  const [shape2] = useState(new Animated.ValueXY({x: 200, y: 300}));
+  const [shape3] = useState(new Animated.ValueXY({x: 300, y: 150}));
+  const [shape4] = useState(new Animated.ValueXY({x: 100, y: 400}));
+  const [shape1Rotate] = useState(new Animated.Value(0));
+  const [shape2Rotate] = useState(new Animated.Value(0));
+  const [shape3Rotate] = useState(new Animated.Value(0));
+  const [shape4Rotate] = useState(new Animated.Value(0));
 
   // Load dashboard data via REST API
   // Used for: Initial load on mount, Manual refresh (pull-to-refresh)
@@ -126,10 +143,37 @@ export default function HomeScreen() {
   }
 
   const handleLocationSelect = async (location: Location) => {
+    // Prevent multiple clicks
+    if (changingLocation) {
+      console.log('[HomeScreen] Location change already in progress, ignoring click');
+      return;
+    }
+
+    // Don't change if same location
+    if (selectedLocation?.id === location.id) {
+      console.log('[HomeScreen] Same location selected, closing dropdown');
+      setShowLocationDropdown(false);
+      return;
+    }
+
     try {
+      setChangingLocation(true);
+      console.log('[HomeScreen] Assigning location:', location.id, location.name);
+      
       await assignLocation({locationId: location.id});
       setSelectedLocation(location);
       setShowLocationDropdown(false);
+      
+      // Refresh the entire screen to get latest data for the new location
+      console.log('[HomeScreen] Location assigned successfully, refreshing dashboard...');
+      await loadDashboard();
+      
+      setDialog({
+        visible: true,
+        title: 'Success',
+        message: `Location changed to ${location.name}`,
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     } catch (error) {
       console.error('Failed to assign location:', error);
       setDialog({
@@ -138,6 +182,8 @@ export default function HomeScreen() {
         message: 'Failed to change location. Please try again.',
         buttons: [{text: 'OK', style: 'default'}],
       });
+    } finally {
+      setChangingLocation(false);
     }
   };
 
@@ -190,9 +236,12 @@ export default function HomeScreen() {
   useValetRealtime({
     onActiveJobsUpdate: (payload) => {
       console.log('[HomeScreen] Active jobs updated via WebSocket:', payload);
+      console.log('[HomeScreen] Jobs array length:', payload.jobs?.length);
+      console.log('[HomeScreen] Payload total:', payload.total);
+      // Use jobs.length instead of total to match ActiveJobsScreen count
       setJobsOverview(prev => ({
         ...prev!,
-        activeJobsCount: payload.total,
+        activeJobsCount: payload.jobs?.length || 0,
         lastUpdated: new Date().toISOString(),
       }));
     },
@@ -260,7 +309,161 @@ export default function HomeScreen() {
   useEffect(() => {
     loadDashboard();
     loadLocations();
+    loadWeather();
+    animateParkButton();
+    animateFloatingShapes();
   }, []);
+
+  // Animate PARK button with pulse effect
+  const animateParkButton = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(parkButtonScale, {
+          toValue: 1.05,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(parkButtonScale, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  // Load dynamic weather data
+  const loadWeather = async () => {
+    setWeatherLoading(true);
+    setWeatherError(null);
+    
+    try {
+      console.log('[HomeScreen] Fetching weather data...');
+      const weatherData = await fetchWeatherData();
+      setWeather(weatherData);
+      setWeatherError(null);
+      console.log('[HomeScreen] Weather data loaded successfully');
+    } catch (error: any) {
+      console.error('[HomeScreen] Failed to load weather:', error);
+      const errorMessage = error.message || 'Unable to load weather';
+      setWeatherError(errorMessage);
+      
+      // Use fallback weather data
+      const fallbackData = getFallbackWeather();
+      setWeather(fallbackData);
+      
+      // Show user-friendly message
+      console.log('[HomeScreen] Using fallback weather data');
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
+  // Animate floating shapes
+  const animateFloatingShapes = () => {
+    const screenWidth = Dimensions.get('window').width;
+    const screenHeight = Dimensions.get('window').height;
+
+    // Shape 1 animation
+    Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(shape1, {
+            toValue: {x: screenWidth - 100, y: 200},
+            duration: 15000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(shape1, {
+            toValue: {x: 50, y: 100},
+            duration: 15000,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.loop(
+          Animated.timing(shape1Rotate, {
+            toValue: 1,
+            duration: 20000,
+            useNativeDriver: true,
+          })
+        ),
+      ])
+    ).start();
+
+    // Shape 2 animation
+    Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(shape2, {
+            toValue: {x: 100, y: screenHeight - 200},
+            duration: 18000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(shape2, {
+            toValue: {x: 200, y: 300},
+            duration: 18000,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.loop(
+          Animated.timing(shape2Rotate, {
+            toValue: 1,
+            duration: 25000,
+            useNativeDriver: true,
+          })
+        ),
+      ])
+    ).start();
+
+    // Shape 3 animation
+    Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(shape3, {
+            toValue: {x: screenWidth - 150, y: screenHeight - 300},
+            duration: 20000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(shape3, {
+            toValue: {x: 300, y: 150},
+            duration: 20000,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.loop(
+          Animated.timing(shape3Rotate, {
+            toValue: 1,
+            duration: 30000,
+            useNativeDriver: true,
+          })
+        ),
+      ])
+    ).start();
+
+    // Shape 4 animation
+    Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(shape4, {
+            toValue: {x: screenWidth - 80, y: 500},
+            duration: 22000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(shape4, {
+            toValue: {x: 100, y: 400},
+            duration: 22000,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.loop(
+          Animated.timing(shape4Rotate, {
+            toValue: 1,
+            duration: 28000,
+            useNativeDriver: true,
+          })
+        ),
+      ])
+    ).start();
+  };
 
   // Monitor pendingPickups state changes
   useEffect(() => {
@@ -278,10 +481,14 @@ export default function HomeScreen() {
     React.useCallback(() => {
       // Check if there's an active pickup job passed via navigation
       if (route.params?.activePickupJob) {
+        console.log('[HomeScreen] Setting active pickup job from route params');
         setActivePickupJob(route.params.activePickupJob);
         setPickupStatus('pending'); // Reset status when new job arrives
+        
+        // Clear the route params to prevent re-showing the banner
+        navigation.setParams({activePickupJob: undefined} as any);
       }
-    }, [route.params?.activePickupJob])
+    }, [route.params?.activePickupJob, navigation])
   );
 
   const handlePickupAction = async () => {
@@ -352,16 +559,8 @@ export default function HomeScreen() {
     return `${seconds}s`;
   };
 
-  const handleLogout = () => {
-    setDialog({
-      visible: true,
-      title: 'Logout',
-      message: 'Are you sure you want to logout?',
-      buttons: [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Logout', style: 'destructive', onPress: logout},
-      ],
-    });
+  const handleProfile = () => {
+    navigation.navigate('Profile');
   };
 
   const onToggleOnline = async () => {
@@ -395,8 +594,126 @@ export default function HomeScreen() {
     }
   };
 
+  const totalJobs = (todayStats?.parkedCount ?? 0) + (todayStats?.deliveredCount ?? 0);
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  };
+  const getWeatherEmoji = () => {
+    if (!weather) return '☁️';
+    
+    // Check if it's nighttime (6 PM to 6 AM)
+    const currentHour = new Date().getHours();
+    const isNight = currentHour >= 18 || currentHour < 6;
+    
+    const condition = weather.condition.toLowerCase();
+    
+    // Handle rainy/stormy weather (same for day/night)
+    if (condition.includes('rain')) return '🌧️';
+    if (condition.includes('storm')) return '⛈️';
+    if (condition.includes('snow')) return '❄️';
+    
+    // Handle clear/sunny weather - show moon at night
+    if (condition.includes('clear') || condition.includes('sun')) {
+      return isNight ? '🌙' : '☀️';
+    }
+    
+    // Handle cloudy weather
+    if (condition.includes('cloud')) return '☁️';
+    
+    // Default: sun during day, moon at night
+    return isNight ? '🌙' : '🌤️';
+  };
+
+  const shape1RotateInterpolate = shape1Rotate.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+  const shape2RotateInterpolate = shape2Rotate.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '-360deg'],
+  });
+  const shape3RotateInterpolate = shape3Rotate.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+  const shape4RotateInterpolate = shape4Rotate.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '-360deg'],
+  });
+
   return (
-    <View style={styles.container}>
+    <LinearGradient
+      colors={['#E3F2FD', '#F3E5F5', '#E8EAF6', '#E1F5FE']}
+      start={{x: 0, y: 0}}
+      end={{x: 1, y: 1}}
+      style={styles.container}>
+      
+      {/* Floating Car Icons Background */}
+      <View style={styles.floatingShapesContainer}>
+        {/* Car Parking Icon 1 */}
+        <Animated.View
+          style={[
+            styles.floatingShape,
+            {
+              transform: [
+                {translateX: shape1.x},
+                {translateY: shape1.y},
+                {rotate: shape1RotateInterpolate},
+              ],
+            },
+          ]}>
+          <Image source={carParkingIcon} style={styles.floatingCarImage} />
+        </Animated.View>
+
+        {/* Park Icon */}
+        <Animated.View
+          style={[
+            styles.floatingShape,
+            {
+              transform: [
+                {translateX: shape2.x},
+                {translateY: shape2.y},
+                {rotate: shape2RotateInterpolate},
+              ],
+            },
+          ]}>
+          <Image source={parkIcon} style={styles.floatingParkImage} />
+        </Animated.View>
+
+        {/* Delivered Icon */}
+        <Animated.View
+          style={[
+            styles.floatingShape,
+            {
+              transform: [
+                {translateX: shape3.x},
+                {translateY: shape3.y},
+                {rotate: shape3RotateInterpolate},
+              ],
+            },
+          ]}>
+          <Image source={deliveredIcon} style={styles.floatingDeliveredImage} />
+        </Animated.View>
+
+        {/* Slot Icon */}
+        <Animated.View
+          style={[
+            styles.floatingShape,
+            {
+              transform: [
+                {translateX: shape4.x},
+                {translateY: shape4.y},
+                {rotate: shape4RotateInterpolate},
+              ],
+            },
+          ]}>
+          <Image source={slotIcon} style={styles.floatingSlotImage} />
+        </Animated.View>
+      </View>
+
       {/* Header with logo, profile, and notification */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -404,10 +721,16 @@ export default function HomeScreen() {
         </View>
         <View style={styles.headerRight}>
           
-          <TouchableOpacity style={styles.iconButton} onPress={handleLogout}>
-            <View style={styles.logoutIcon}>
-              <Image source={logoutIcon} style={styles.logoutIconImage} />
-            </View>
+          <TouchableOpacity style={styles.iconButton} onPress={handleProfile}>
+            <LinearGradient
+              colors={['#76D0E3', '#3156D8']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={styles.profileIconButton}>
+              <Text style={styles.profileIconText}>
+                {session?.driverName?.trim().charAt(0).toUpperCase() || 'D'}
+              </Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
       </View>
@@ -415,17 +738,43 @@ export default function HomeScreen() {
       {/* Driver info section */}
       <View style={styles.driverSection}>
         <View style={styles.driverInfo}>
-          <Text style={styles.driverName}>{session?.driverName ?? 'Driver'}</Text>
-          <TouchableOpacity 
-            style={styles.locationRow}
-            onPress={() => setShowLocationDropdown(!showLocationDropdown)}>
-            <Image source={locationIcon} style={styles.locationIconImage} />
-            <Text style={styles.locationText}>
-              {selectedLocation ? selectedLocation.name : 'Select Location'}
-            </Text>
-            <Text style={styles.dropdownArrow}>{showLocationDropdown ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-          {showLocationDropdown && locations.length > 0 && (
+          <View style={styles.driverInfoLeft}>
+            <Text style={styles.driverName}>{session?.driverName ?? 'Driver'}</Text>
+            <TouchableOpacity 
+              style={styles.locationRow}
+              onPress={() => !changingLocation && setShowLocationDropdown(!showLocationDropdown)}
+              disabled={changingLocation}>
+              <Image source={locationIcon} style={styles.locationIconImage} />
+              <Text style={styles.locationText}>
+                {changingLocation ? 'Changing location...' : (selectedLocation ? selectedLocation.name : 'Select Location')}
+              </Text>
+              {changingLocation ? (
+                <ActivityIndicator size="small" color={COLORS.gradientEnd} style={{marginLeft: 4}} />
+              ) : (
+                <Text style={styles.dropdownArrow}>{showLocationDropdown ? '▲' : '▼'}</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {/* Weather Widget on Right */}
+          <View style={styles.weatherWidget}>
+            {weatherLoading ? (
+              <ActivityIndicator size="small" color={COLORS.gradientEnd} />
+            ) : weatherError ? (
+              <TouchableOpacity onPress={loadWeather} style={styles.weatherErrorContainer}>
+                <Text style={styles.weatherErrorIcon}>⚠️</Text>
+                <Text style={styles.weatherErrorText}>Tap to retry</Text>
+              </TouchableOpacity>
+            ) : weather ? (
+              <>
+                <Text style={styles.weatherWidgetEmoji}>{getWeatherEmoji()}</Text>
+                <View>
+                  <Text style={styles.weatherWidgetTemp}>{weather.temp}°C</Text>
+                  <Text style={styles.weatherWidgetCondition}>{weather.condition}</Text>
+                </View>
+              </>
+            ) : null}
+          </View>
+          {showLocationDropdown && locations.length > 0 && !changingLocation && (
             <View style={styles.locationDropdown}>
               {locations.map((location) => (
                 <TouchableOpacity
@@ -434,7 +783,8 @@ export default function HomeScreen() {
                     styles.locationOption,
                     selectedLocation?.id === location.id && styles.locationOptionSelected
                   ]}
-                  onPress={() => handleLocationSelect(location)}>
+                  onPress={() => handleLocationSelect(location)}
+                  disabled={changingLocation}>
                   <Text style={[
                     styles.locationOptionText,
                     selectedLocation?.id === location.id && styles.locationOptionTextSelected
@@ -449,24 +799,16 @@ export default function HomeScreen() {
             </View>
           )}
         </View>
-        <View style={styles.toggleContainer}>
-          <TouchableOpacity
-            style={
-              shiftStatus === 'active'
-                ? styles.onlineToggle
-                : styles.offlineToggle
-            }
-            onPress={onToggleOnline}>
-            <Text style={styles.onlineToggleText}>
-              {shiftStatus === 'active' ? 'Online' : 'Offline'}
-            </Text>
-            <View style={styles.toggleCircle} />
-          </TouchableOpacity>
-          {shiftStatus === 'active' && elapsedSeconds > 0 && (
-            <Text style={styles.timerText}>{formatDuration(elapsedSeconds)}</Text>
-          )}
-        </View>
       </View>
+
+      {/* Overlay to close dropdown when clicking outside */}
+      {showLocationDropdown && (
+        <TouchableOpacity
+          style={styles.dropdownOverlay}
+          activeOpacity={1}
+          onPress={() => setShowLocationDropdown(false)}
+        />
+      )}
 
       <ScrollView
         style={styles.scroll}
@@ -481,15 +823,26 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
+            {/* Quick Stats Summary */}
+            {totalJobs > 0 && (
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryText}>
+                  {getGreeting()}! You've completed <Text style={styles.summaryHighlight}>{totalJobs} jobs</Text> today - Great work! 🎉
+                </Text>
+              </View>
+            )}
+
             {/* Stats cards */}
             <View style={styles.statsRow}>
               <View style={styles.statCard}>
                 <Image source={carParkingIcon} style={styles.statIconImage} />
-                <Text style={styles.statValue}>Parked Vehicles: {todayStats?.parkedCount ?? 0}</Text>
+                <Text style={styles.statLabel}>Parked Vehicles</Text>
+                <Text style={styles.statValue}>{todayStats?.parkedCount ?? 0}</Text>
               </View>
               <View style={styles.statCard}>
                 <Image source={deliveredIcon} style={styles.statIconImage} />
-                <Text style={styles.statValue}>Delivered Vehicles: {todayStats?.deliveredCount ?? 0}</Text>
+                <Text style={styles.statLabel}>Delivered Vehicles</Text>
+                <Text style={styles.statValue}>{todayStats?.deliveredCount ?? 0}</Text>
               </View>
             </View>
 
@@ -505,6 +858,11 @@ export default function HomeScreen() {
                   <Text style={styles.infoLabel}>Pending Pickups</Text>
                   <Text style={styles.infoValue}>{pendingPickups.count}</Text>
                 </View>
+                {pendingPickups.count === 0 && (
+                  <View style={styles.emptyBadge}>
+                    <Text style={styles.emptyBadgeText}>✓ All Clear</Text>
+                  </View>
+                )}
               </TouchableOpacity>
               <View style={styles.infoDivider} />
               <TouchableOpacity
@@ -517,21 +875,28 @@ export default function HomeScreen() {
                   <Text style={styles.infoLabel}>Active Jobs</Text>
                   <Text style={styles.infoValue}>{jobsOverview?.activeJobsCount ?? 0}</Text>
                 </View>
+                {(jobsOverview?.activeJobsCount ?? 0) === 0 && (
+                  <View style={styles.emptyBadge}>
+                    <Text style={styles.emptyBadgeText}>✓ All Done</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
 
-            {/* Large PARK button */}
+            {/* Large PARK button with animation */}
             <View style={styles.parkButtonContainer}>
               <TouchableOpacity
                 onPress={() => navigation.navigate('StartParking')}
                 activeOpacity={0.8}>
-                <LinearGradient
-                  colors={['#76D0E3', '#3156D8']}
-                  start={{x: 0, y: 0}}
-                  end={{x: 1, y: 1}}
-                  style={styles.parkButton}>
-                  <Image source={parkIcon} style={styles.parkIconImage} />
-                </LinearGradient>
+                <Animated.View style={{transform: [{scale: parkButtonScale}]}}>
+                  <LinearGradient
+                    colors={['#76D0E3', '#3156D8']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 1}}
+                    style={styles.parkButton}>
+                    <Image source={parkIcon} style={styles.parkIconImage} />
+                  </LinearGradient>
+                </Animated.View>
               </TouchableOpacity>
             </View>
 
@@ -582,10 +947,6 @@ export default function HomeScreen() {
                   <Text style={styles.pickupBannerLabel}>Slot:</Text>
                   <Text style={styles.pickupBannerValue}>{activePickupJob.slotNumber}</Text>
                 </View>
-                <View style={styles.pickupBannerRow}>
-                  <Text style={styles.pickupBannerLabel}>Pickup Point:</Text>
-                  <Text style={styles.pickupBannerValue}>{activePickupJob.pickupPoint}</Text>
-                </View>
                 {activePickupJob.locationDescription && (
                   <View style={styles.pickupBannerRow}>
                     <Text style={styles.pickupBannerLabel}>Remarks:</Text>
@@ -616,6 +977,11 @@ export default function HomeScreen() {
         </Animated.View>
       )}
 
+      {/* Overlay to block interactions when banner is visible */}
+      {activePickupJob && (
+        <View style={styles.bannerOverlay} pointerEvents="box-only" />
+      )}
+
       {/* Custom Dialog */}
       <CustomDialog
         visible={dialog.visible}
@@ -624,7 +990,7 @@ export default function HomeScreen() {
         buttons={dialog.buttons}
         onDismiss={() => setDialog({...dialog, visible: false})}
       />
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -634,114 +1000,120 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 16,
+    paddingHorizontal: getResponsiveSpacing(20),
+    paddingTop: verticalScale(50),
+    paddingBottom: verticalScale(16),
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: COLORS.white,
     ...SHADOWS.small,
+    zIndex: 1,
   },
   headerLeft: {
     flexDirection: 'row',
   },
   headerLogo: {
-    height: 40,
-    width: 150,
+    height: verticalScale(40),
+    width: moderateScale(150),
     resizeMode: 'contain',
-    marginLeft: -50,
+    marginLeft: moderateScale(-50),
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: moderateScale(12),
   },
   iconButton: {
-    padding: 4,
+    padding: moderateScale(4),
   },
   profileIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: moderateScale(36),
+    height: moderateScale(36),
+    borderRadius: moderateScale(18),
     backgroundColor: COLORS.gradientEnd,
     justifyContent: 'center',
     alignItems: 'center',
   },
   profileIconText: {
-    fontSize: 18,
+    fontSize: getResponsiveFontSize(18),
     fontWeight: '600',
     color: '#ffffff',
   },
-  logoutIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#DC2626',
+  profileIconButton: {
+    width: moderateScale(36),
+    height: moderateScale(36),
+    borderRadius: moderateScale(18),
     justifyContent: 'center',
     alignItems: 'center',
   },
-  logoutIconImage: {
-    width: 20,
-    height: 20,
-    tintColor: '#ffffff',
-  },
-  logoutIconText: {
-    fontSize: 20,
-  },
   driverSection: {
     backgroundColor: COLORS.backgroundLight,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingHorizontal: getResponsiveSpacing(16),
+    paddingVertical: verticalScale(12),
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   driverInfo: {
     flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  driverInfoLeft: {
+    flex: 1,
   },
   driverName: {
-    fontSize: 24,
+    fontSize: getResponsiveFontSize(20),
     fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: 4,
+    marginBottom: verticalScale(2),
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: moderateScale(4),
   },
   locationIcon: {
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
   },
   locationIconImage: {
-    width: 14,
-    height: 14,
+    width: moderateScale(14),
+    height: moderateScale(14),
   },
   locationText: {
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     color: COLORS.textSecondary,
-    flex: 1,
   },
   dropdownArrow: {
-    fontSize: 10,
-    color: COLORS.textSecondary,
-    marginLeft: 4,
+    fontSize: getResponsiveFontSize(10),
+    color: '#DC2626',
+    marginLeft: moderateScale(4),
   },
   locationDropdown: {
     position: 'absolute',
-    top: 50,
+    top: verticalScale(50),
     left: 0,
     right: 0,
     backgroundColor: COLORS.white,
-    borderRadius: 12,
-    marginTop: 4,
-    maxHeight: 200,
+    borderRadius: moderateScale(12),
+    marginTop: verticalScale(4),
+    marginHorizontal: getResponsiveSpacing(16),
+    maxHeight: verticalScale(200),
+    ...SHADOWS.large,
+    zIndex: 1001,
+  },
+  dropdownOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     zIndex: 1000,
-    ...SHADOWS.medium,
   },
   locationOption: {
-    padding: 12,
+    padding: getResponsiveSpacing(12),
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -749,123 +1121,130 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundLight,
   },
   locationOptionText: {
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     fontWeight: '600',
     color: COLORS.textPrimary,
-    marginBottom: 2,
+    marginBottom: verticalScale(2),
   },
   locationOptionTextSelected: {
     color: COLORS.gradientEnd,
   },
   locationOptionAddress: {
-    fontSize: 12,
+    fontSize: getResponsiveFontSize(12),
     color: COLORS.textSecondary,
   },
   toggleContainer: {
     alignItems: 'center',
-    gap: 6,
+    gap: moderateScale(6),
   },
   onlineToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.success,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    gap: 6,
+    paddingHorizontal: getResponsiveSpacing(10),
+    paddingVertical: verticalScale(5),
+    borderRadius: moderateScale(999),
+    gap: moderateScale(6),
     ...SHADOWS.small,
   },
   offlineToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.textSecondary,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    gap: 6,
+    paddingHorizontal: getResponsiveSpacing(10),
+    paddingVertical: verticalScale(5),
+    borderRadius: moderateScale(999),
+    gap: moderateScale(6),
     ...SHADOWS.small,
   },
   onlineToggleText: {
-    fontSize: 12,
+    fontSize: getResponsiveFontSize(12),
     fontWeight: '600',
     color: '#ffffff',
   },
   toggleCircle: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: moderateScale(16),
+    height: moderateScale(16),
+    borderRadius: moderateScale(8),
     backgroundColor: '#ffffff',
   },
   timerText: {
-    fontSize: 11,
+    fontSize: getResponsiveFontSize(11),
     fontWeight: '500',
     color: COLORS.textSecondary,
-    marginTop: 2,
+    marginTop: verticalScale(2),
   },
   scroll: {
     flex: 1,
-    backgroundColor: COLORS.backgroundLight,
+    backgroundColor: 'transparent',
+    zIndex: 1,
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+    padding: getResponsiveSpacing(16),
+    paddingBottom: verticalScale(20),
   },
   loadingContainer: {
-    marginTop: 60,
+    marginTop: verticalScale(60),
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 12,
+    marginTop: verticalScale(12),
     color: COLORS.textSecondary,
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
   },
   statsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+    gap: moderateScale(10),
+    marginBottom: verticalScale(12),
   },
   statCard: {
     flex: 1,
     backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: moderateScale(12),
+    padding: getResponsiveSpacing(12),
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 120,
+    minHeight: verticalScale(90),
     ...SHADOWS.medium,
   },
   statIcon: {
-    fontSize: 48,
-    marginBottom: 12,
+    fontSize: getResponsiveFontSize(48),
+    marginBottom: verticalScale(12),
   },
   statIconImage: {
-    width: 40,
-    height: 40,
-    marginBottom: 12,
+    width: moderateScale(32),
+    height: moderateScale(32),
+    marginBottom: verticalScale(8),
+  },
+  statLabel: {
+    fontSize: getResponsiveFontSize(12),
+    fontWeight: '500',
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginBottom: verticalScale(4),
   },
   statValue: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: getResponsiveFontSize(24),
+    fontWeight: '700',
     color: COLORS.textPrimary,
     textAlign: 'center',
-    flexShrink: 1,
   },
   infoCard: {
     backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 24,
+    borderRadius: moderateScale(12),
+    padding: getResponsiveSpacing(12),
+    marginBottom: verticalScale(16),
     ...SHADOWS.medium,
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 4,
+    gap: moderateScale(12),
+    paddingVertical: verticalScale(4),
   },
   infoIconContainer: {
-    width: 28,
-    height: 28,
+    width: moderateScale(28),
+    height: moderateScale(28),
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -876,36 +1255,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   infoIcon: {
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: getResponsiveFontSize(22),
+    lineHeight: verticalScale(28),
   },
   infoIconImage: {
-    width: 28,
-    height: 28,
+    width: moderateScale(28),
+    height: moderateScale(28),
   },
   infoLabel: {
-    fontSize: 15,
+    fontSize: getResponsiveFontSize(15),
     fontWeight: '600',
     color: COLORS.textPrimary,
   },
   infoValue: {
-    fontSize: 15,
+    fontSize: getResponsiveFontSize(15),
     fontWeight: '700',
     color: COLORS.gradientEnd,
   },
   infoDivider: {
     height: 1,
     backgroundColor: COLORS.border,
-    marginVertical: 12,
+    marginVertical: verticalScale(8),
   },
   parkButtonContainer: {
     alignItems: 'center',
-    marginVertical: 32,
+    marginVertical: verticalScale(16),
   },
   parkButton: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    width: moderateScale(160),
+    height: moderateScale(160),
+    borderRadius: moderateScale(80),
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -915,31 +1294,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   parkIconImage: {
-    width: 100,
-    height: 100,
+    width: moderateScale(80),
+    height: moderateScale(80),
     tintColor: '#ffffff',
   },
   parkText: {
-    fontSize: 36,
+    fontSize: getResponsiveFontSize(36),
     fontWeight: '700',
     color: '#ffffff',
-    letterSpacing: 3,
+    letterSpacing: moderateScale(3),
   },
   ongoingBanner: {
     backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: moderateScale(16),
+    padding: getResponsiveSpacing(20),
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
+    gap: moderateScale(12),
+    marginBottom: verticalScale(20),
     ...SHADOWS.medium,
   },
   ongoingIcon: {
-    fontSize: 24,
+    fontSize: getResponsiveFontSize(24),
   },
   ongoingText: {
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     fontWeight: '600',
     color: COLORS.textPrimary,
     flex: 1,
@@ -950,40 +1329,41 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: COLORS.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 8,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+    borderTopLeftRadius: moderateScale(20),
+    borderTopRightRadius: moderateScale(20),
+    paddingTop: verticalScale(8),
+    paddingHorizontal: getResponsiveSpacing(16),
+    paddingBottom: verticalScale(16),
+    zIndex: 2,
     ...SHADOWS.large,
   },
   pickupBannerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: verticalScale(8),
   },
   pickupBannerScrollView: {
     flex: 1,
     maxHeight: '70%', // Allow space for header and button
   },
   pickupBannerScrollContent: {
-    paddingBottom: 8,
+    paddingBottom: verticalScale(8),
   },
   pickupBannerTitle: {
-    fontSize: 18,
+    fontSize: getResponsiveFontSize(18),
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
   pickupBannerToggle: {
-    fontSize: 20,
+    fontSize: getResponsiveFontSize(20),
     fontWeight: '700',
     color: COLORS.gradientEnd,
-    paddingHorizontal: 8,
+    paddingHorizontal: getResponsiveSpacing(8),
   },
   pickupBannerContent: {
-    gap: 16,
-    paddingVertical: 8,
+    gap: verticalScale(16),
+    paddingVertical: verticalScale(8),
   },
   pickupBannerRow: {
     flexDirection: 'row',
@@ -991,17 +1371,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pickupBannerLabel: {
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     fontWeight: '500',
     color: COLORS.textSecondary,
   },
   pickupBannerValue: {
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
   pickupActionButtonContainer: {
-    marginTop: 16,
+    marginTop: verticalScale(16),
   },
   pickupActionButton: {
     alignItems: 'center',
@@ -1009,12 +1389,116 @@ const styles = StyleSheet.create({
   },
   dragHandleContainer: {
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: verticalScale(8),
   },
   dragHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
+    width: moderateScale(40),
+    height: moderateScale(4),
+    borderRadius: moderateScale(2),
     backgroundColor: COLORS.border,
+  },
+  bannerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 1,
+  },
+  weatherWidget: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderRadius: moderateScale(12),
+    padding: getResponsiveSpacing(10),
+    gap: moderateScale(8),
+    ...SHADOWS.small,
+  },
+  weatherWidgetEmoji: {
+    fontSize: getResponsiveFontSize(28),
+  },
+  weatherWidgetTemp: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  weatherWidgetCondition: {
+    fontSize: getResponsiveFontSize(11),
+    color: COLORS.textSecondary,
+  },
+  weatherErrorContainer: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: moderateScale(2),
+  },
+  weatherErrorIcon: {
+    fontSize: getResponsiveFontSize(20),
+  },
+  weatherErrorText: {
+    fontSize: getResponsiveFontSize(9),
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  summaryCard: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: moderateScale(12),
+    padding: getResponsiveSpacing(16),
+    marginBottom: verticalScale(16),
+    borderLeftWidth: moderateScale(4),
+    borderLeftColor: COLORS.success,
+  },
+  summaryText: {
+    fontSize: getResponsiveFontSize(14),
+    color: COLORS.textPrimary,
+    lineHeight: verticalScale(20),
+  },
+  summaryHighlight: {
+    fontWeight: '700',
+    color: COLORS.gradientEnd,
+  },
+  emptyBadge: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: getResponsiveSpacing(12),
+    paddingVertical: verticalScale(4),
+    borderRadius: moderateScale(12),
+  },
+  emptyBadgeText: {
+    fontSize: getResponsiveFontSize(12),
+    fontWeight: '600',
+    color: COLORS.success,
+  },
+  floatingShapesContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: 'hidden',
+    zIndex: 0,
+  },
+  floatingShape: {
+    position: 'absolute',
+    opacity: 0.18,
+  },
+  floatingCarImage: {
+    width: moderateScale(120),
+    height: moderateScale(120),
+    resizeMode: 'contain',
+  },
+  floatingParkImage: {
+    width: moderateScale(100),
+    height: moderateScale(100),
+    resizeMode: 'contain',
+  },
+  floatingDeliveredImage: {
+    width: moderateScale(110),
+    height: moderateScale(110),
+    resizeMode: 'contain',
+  },
+  floatingSlotImage: {
+    width: moderateScale(90),
+    height: moderateScale(90),
+    resizeMode: 'contain',
   },
 });

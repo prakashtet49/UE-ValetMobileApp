@@ -33,6 +33,10 @@ export function useValetRealtime(callbacks: UseValetRealtimeCallbacks = {}) {
   
   // Update callbacks ref whenever they change
   useEffect(() => {
+    console.log('[WebSocket] 🔄 Callbacks updated');
+    console.log('[WebSocket] Has onActiveJobsUpdate:', !!callbacks.onActiveJobsUpdate);
+    console.log('[WebSocket] Has onJobStatsUpdate:', !!callbacks.onJobStatsUpdate);
+    console.log('[WebSocket] Has onNewPickupRequest:', !!callbacks.onNewPickupRequest);
     callbacksRef.current = callbacks;
   }, [callbacks]);
   
@@ -198,19 +202,28 @@ export function useValetRealtime(callbacks: UseValetRealtimeCallbacks = {}) {
         }
       });
 
-      // Listen for new pickup requests
-      socket.on('pickup:new', (payload: PickupRequestsPayload) => {
+      // Handler function for pickup requests (used by multiple event names)
+      const handlePickupRequest = (eventName: string, payload: PickupRequestsPayload | PendingPickupJob[]) => {
         console.log('┌─────────────────────────────────────────┐');
         console.log('│ [WebSocket] 🚗 NEW PICKUP REQUEST       │');
         console.log('└─────────────────────────────────────────┘');
+        console.log('[WebSocket] Event Name:', eventName);
         console.log('[WebSocket] Timestamp:', new Date().toISOString());
-        console.log('[WebSocket] Requests Count:', payload.requests?.length || 0);
+        console.log('[WebSocket] Raw Payload Type:', Array.isArray(payload) ? 'Array' : 'Object');
         console.log('[WebSocket] Full Payload:', JSON.stringify(payload, null, 2));
         
+        // Normalize payload - backend sends array directly, not {requests: [...]}
+        const normalizedPayload: PickupRequestsPayload = Array.isArray(payload) 
+          ? { requests: payload }
+          : payload;
+        
+        const requestsCount = normalizedPayload.requests?.length || 0;
+        console.log('[WebSocket] Normalized Requests Count:', requestsCount);
+        
         // Log each request details
-        if (payload.requests && payload.requests.length > 0) {
+        if (normalizedPayload.requests && normalizedPayload.requests.length > 0) {
           console.log('[WebSocket] 📝 Request Details:');
-          payload.requests.forEach((request, index) => {
+          normalizedPayload.requests.forEach((request, index) => {
             console.log(`[WebSocket]   Request ${index + 1}:`, JSON.stringify(request, null, 2));
           });
         } else {
@@ -221,13 +234,24 @@ export function useValetRealtime(callbacks: UseValetRealtimeCallbacks = {}) {
         if (callbacksRef.current.onNewPickupRequest) {
           console.log('[WebSocket] ✓ Calling onNewPickupRequest callback');
           console.log('[WebSocket] ✓ Callback will receive:', {
-            requestsCount: payload.requests?.length || 0,
-            hasRequests: payload.requests && payload.requests.length > 0
+            requestsCount,
+            hasRequests: requestsCount > 0
           });
-          callbacksRef.current.onNewPickupRequest(payload);
+          callbacksRef.current.onNewPickupRequest(normalizedPayload);
         } else {
           console.log('[WebSocket] ⚠️ No onNewPickupRequest callback registered');
         }
+      };
+
+      // Listen for new pickup requests - support multiple event names
+      // Backend might use 'pickup:new' or 'pickup-requests/new'
+      socket.on('pickup:new', (payload) => {
+        console.log('[WebSocket] 🎯 pickup:new event received!');
+        handlePickupRequest('pickup:new', payload);
+      });
+      socket.on('pickup-requests/new', (payload) => {
+        console.log('[WebSocket] 🎯 pickup-requests/new event received!');
+        handlePickupRequest('pickup-requests/new', payload);
       });
 
       // Add a catch-all listener to see ALL events from server

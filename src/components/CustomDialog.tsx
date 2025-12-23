@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
   TouchableWithoutFeedback,
+  Platform,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {COLORS, SHADOWS} from '../constants/theme';
@@ -154,19 +155,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   buttonGradient: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    paddingVertical: Platform.OS === 'ios' ? 16 : 14,
+    paddingHorizontal: Platform.OS === 'ios' ? 24 : 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
+    minHeight: Platform.OS === 'ios' ? 48 : 44,
   },
   buttonSolid: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    paddingVertical: Platform.OS === 'ios' ? 16 : 14,
+    paddingHorizontal: Platform.OS === 'ios' ? 24 : 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
     backgroundColor: COLORS.backgroundLight,
+    minHeight: Platform.OS === 'ios' ? 48 : 44,
   },
   buttonCancel: {
     backgroundColor: COLORS.backgroundLight,

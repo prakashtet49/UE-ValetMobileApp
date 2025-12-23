@@ -1,4 +1,4 @@
-export const BASE_URL = 'http://13.50.218.71:80';
+export const BASE_URL = 'https://urbaneasevalet-production.up.railway.app';
 
 export type HttpMethod = 'GET' | 'POST';
 

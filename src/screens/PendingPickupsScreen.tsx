@@ -68,13 +68,26 @@ export default function PendingPickupsScreen() {
       console.log('[PendingPickups] Responding to pickup', {jobId, action});
       const response = await respondToPickupRequest({pickupJobId: jobId, action});
       
-      // Navigate back to Home screen with pickup job data
-      console.log('[PendingPickups] Pickup accepted, navigating to Home with job data', response.pickupJob);
-      navigation.navigate('Home', {activePickupJob: response.pickupJob});
+      if (action === 'ACCEPT') {
+        // Reset to Home screen with pickup job data to clear backstack
+        console.log('[PendingPickups] Pickup accepted, resetting to Home with job data', response.pickupJob);
+        navigation.reset({
+          index: 0,
+          routes: [{name: 'Home', params: {activePickupJob: response.pickupJob}}],
+        });
+      } else {
+        // For decline, just refresh the list
+        await loadData();
+        setActionLoadingId(null);
+      }
     } catch (error) {
       console.error('[PendingPickups] Failed to respond to pickup', error);
       setActionLoadingId(null);
     }
+  };
+
+  const formatStatus = (status: string) => {
+    return status.replace(/_/g, ' ');
   };
 
   const handleUpdateStatus = async (
@@ -100,7 +113,7 @@ export default function PendingPickupsScreen() {
       <View style={styles.card}>
         <View style={styles.cardHeaderRow}>
           <Text style={styles.vehicleText}>{item.vehicleNumber}</Text>
-          <Text style={styles.statusText}>{item.status}</Text>
+          <Text style={styles.statusText}>{formatStatus(item.status)}</Text>
         </View>
         
         <View style={styles.detailsContainer}>
@@ -112,11 +125,6 @@ export default function PendingPickupsScreen() {
           <View style={styles.detailRow}>
             <Text style={styles.labelText}>Slot Number:</Text>
             <Text style={styles.valueText}>{item.slotNumber || '-'}</Text>
-          </View>
-          
-          <View style={styles.detailRow}>
-            <Text style={styles.labelText}>Pickup Point:</Text>
-            <Text style={styles.valueText}>{item.pickupPoint || '-'}</Text>
           </View>
           
           {item.locationDescription && (

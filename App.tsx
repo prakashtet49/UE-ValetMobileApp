@@ -22,6 +22,10 @@ import {handleJobNotification} from './src/notifications/jobNotifications';
 import {navigate} from './src/navigation/navigationRef';
 import { AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import GlobalNetworkMonitor from './src/components/GlobalNetworkMonitor';
+import {initializeFCM, setupNotificationListeners} from './src/services/notificationService';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import {logError} from './src/utils/errorHandler';
 
 import {navigationRef} from './src/navigation/navigationRef';
 
@@ -40,133 +44,147 @@ function App() {
   useEffect(() => {
     console.log('[FCM] setup effect mounted');
 
-    // App opened from background via notification tap
-    const unsubscribeOpen = messaging().onNotificationOpenedApp(remoteMessage => {
-      console.log('[FCM] Notification opened from background', remoteMessage);
-      if (remoteMessage?.data) {
-        handleJobNotification(remoteMessage.data);
-      }
-    });
-
-    // App opened from quit state via notification tap
-    messaging()
-      .getInitialNotification()
-      .then(remoteMessage => {
-        console.log('[FCM] getInitialNotification result', remoteMessage);
-        if (remoteMessage?.data) {
-          handleJobNotification(remoteMessage.data);
+    try {
+      // App opened from background via notification tap
+      const unsubscribeOpen = messaging().onNotificationOpenedApp(remoteMessage => {
+        try {
+          console.log('[FCM] Notification opened from background', remoteMessage);
+          if (remoteMessage?.data) {
+            handleJobNotification(remoteMessage.data);
+          }
+        } catch (error) {
+          logError('FCM onNotificationOpenedApp', error);
         }
-      })
-      .catch(error => {
-        console.error('[FCM] getInitialNotification error', error);
       });
 
-    // Foreground messages
-    const unsubscribeForeground = messaging().onMessage(async remoteMessage => {
-      console.log('[FCM] Foreground message received', remoteMessage);
-      const data = remoteMessage.data || {};
-      if (data && data.type === 'NEW_JOB') {
-        if (data.jobId && data.vehicleNumber) {
-          setForegroundJob({
-            jobId: String(data.jobId),
-            vehicleNumber: String(data.vehicleNumber),
-            tagNumber: data.tagNumber ? String(data.tagNumber) : undefined,
-            pickupPoint: data.pickupPoint ? String(data.pickupPoint) : undefined,
-          });
-        }
-      }
-    });
+      // App opened from quit state via notification tap
+      messaging()
+        .getInitialNotification()
+        .then(remoteMessage => {
+          try {
+            console.log('[FCM] getInitialNotification result', remoteMessage);
+            if (remoteMessage?.data) {
+              handleJobNotification(remoteMessage.data);
+            }
+          } catch (error) {
+            logError('FCM getInitialNotification handler', error);
+          }
+        })
+        .catch(error => {
+          logError('FCM getInitialNotification', error);
+        });
 
-    return () => {
-      console.log('[FCM] cleanup subscriptions');
-      unsubscribeOpen();
-      unsubscribeForeground();
-    };
+      // Foreground messages
+      const unsubscribeForeground = messaging().onMessage(async remoteMessage => {
+        try {
+          console.log('[FCM] Foreground message received', remoteMessage);
+          const data = remoteMessage.data || {};
+          if (data && data.type === 'NEW_JOB') {
+            if (data.jobId && data.vehicleNumber) {
+              setForegroundJob({
+                jobId: String(data.jobId),
+                vehicleNumber: String(data.vehicleNumber),
+                tagNumber: data.tagNumber ? String(data.tagNumber) : undefined,
+                pickupPoint: data.pickupPoint ? String(data.pickupPoint) : undefined,
+              });
+            }
+          }
+        } catch (error) {
+          logError('FCM onMessage', error);
+        }
+      });
+
+      return () => {
+        try {
+          console.log('[FCM] cleanup subscriptions');
+          unsubscribeOpen();
+          unsubscribeForeground();
+        } catch (error) {
+          logError('FCM cleanup', error);
+        }
+      };
+    } catch (error) {
+      logError('FCM setup', error);
+    }
   }, []);
 
-  // Separate effect for FCM token logging
+  // Initialize FCM and register token with backend
   useEffect(() => {
-    console.log('[FCM] token effect mounted');
+    console.log('[FCM] Initializing FCM service');
 
-    const getTokenAsync = async () => {
-      console.log('[FCM] getTokenAsync START');
+    const initFCM = async () => {
       try {
-        console.log('[FCM] requesting notification permission');
-        const authStatus = await messaging().requestPermission();
-        console.log('[FCM] requestPermission returned', authStatus);
-
-        const enabled =
-          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-        console.log('[FCM] computed enabled =', enabled);
-
-        if (!enabled) {
-          console.log('[FCM] permission not granted, skipping getToken');
-          return;
+        // Initialize FCM and register token with backend
+        const token = await initializeFCM();
+        if (token) {
+          console.log('[FCM] ✅ FCM initialized and token registered');
+        } else {
+          console.log('[FCM] ⚠️ FCM initialization failed or permission denied');
         }
-
-        console.log('[FCM] calling messaging().getToken() NOW');
-        const token = await messaging().getToken();
-        console.log('[FCM] Registration token VALUE:', token);
       } catch (error) {
-        console.error('[FCM] getToken error CAUGHT:', error);
-      } finally {
-        console.log('[FCM] getTokenAsync END');
+        console.error('[FCM] ❌ Error initializing FCM:', error);
       }
     };
 
-    getTokenAsync();
+    initFCM();
   }, []);
 
   const handleViewJob = () => {
-    if (!foregroundJob) {
-      return;
+    try {
+      if (!foregroundJob) {
+        return;
+      }
+      const {jobId, vehicleNumber, tagNumber, pickupPoint} = foregroundJob;
+      navigate('NewJobRequest', {
+        jobId,
+        vehicleNumber,
+        tagNumber,
+        pickupPoint,
+      });
+      setForegroundJob(null);
+    } catch (error) {
+      logError('handleViewJob', error);
+      setForegroundJob(null);
     }
-    const {jobId, vehicleNumber, tagNumber, pickupPoint} = foregroundJob;
-    navigate('NewJobRequest', {
-      jobId,
-      vehicleNumber,
-      tagNumber,
-      pickupPoint,
-    });
-    setForegroundJob(null);
   };
 
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <View style={styles.container}>
-        <AuthProvider>
-          {foregroundJob ? (
-            <View style={styles.bannerContainer}>
-              <View style={styles.bannerCard}>
-                <Text style={styles.bannerTitle}>New job request</Text>
-                <Text style={styles.bannerText}>
-                  {foregroundJob.vehicleNumber}
-                  {foregroundJob.pickupPoint
-                    ? ` b7 ${foregroundJob.pickupPoint}`
-                    : ''}
-                </Text>
-                <View style={styles.bannerActionsRow}>
-                  <TouchableOpacity
-                    style={styles.bannerPrimaryButton}
-                    onPress={handleViewJob}>
-                    <Text style={styles.bannerPrimaryText}>View</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.bannerSecondaryButton}
-                    onPress={() => setForegroundJob(null)}>
-                    <Text style={styles.bannerSecondaryText}>Dismiss</Text>
-                  </TouchableOpacity>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+        <View style={styles.container}>
+          <AuthProvider>
+            {foregroundJob ? (
+              <View style={styles.bannerContainer}>
+                <View style={styles.bannerCard}>
+                  <Text style={styles.bannerTitle}>New job request</Text>
+                  <Text style={styles.bannerText}>
+                    {foregroundJob.vehicleNumber}
+                    {foregroundJob.pickupPoint
+                      ? ` b7 ${foregroundJob.pickupPoint}`
+                      : ''}
+                  </Text>
+                  <View style={styles.bannerActionsRow}>
+                    <TouchableOpacity
+                      style={styles.bannerPrimaryButton}
+                      onPress={handleViewJob}>
+                      <Text style={styles.bannerPrimaryText}>View</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.bannerSecondaryButton}
+                      onPress={() => setForegroundJob(null)}>
+                      <Text style={styles.bannerSecondaryText}>Dismiss</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-            </View>
-          ) : null}
-          <AppNavigator />
-        </AuthProvider>
-      </View>
-    </SafeAreaProvider>
+            ) : null}
+            <AppNavigator />
+            <GlobalNetworkMonitor />
+          </AuthProvider>
+        </View>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 const styles = StyleSheet.create({
