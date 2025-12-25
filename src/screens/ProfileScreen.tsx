@@ -4,27 +4,35 @@ import {
   Image,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
+  Alert,
+  Platform,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useAuth} from '../context/AuthContext';
-import {getDriverProfile, type DriverProfile} from '../api/driver';
+import {getDriverProfile, getClientLocations, updatePickupETA, type DriverProfile, type Location} from '../api/driver';
 import BackButton from '../components/BackButton';
 import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 import type {AppStackParamList} from '../navigation/AppNavigator';
+import {logError, getUserFriendlyMessage} from '../utils/errorHandler';
 
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
 const logoutIcon = require('../assets/icons/logout.png');
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
-  const {logout} = useAuth();
+  const {logout, session} = useAuth();
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [etaMinutes, setEtaMinutes] = useState('');
+  const [isEditingETA, setIsEditingETA] = useState(false);
+  const [settingETA, setSettingETA] = useState(false);
   const [dialog, setDialog] = useState<{
     visible: boolean;
     title: string;
@@ -32,8 +40,12 @@ export default function ProfileScreen() {
     buttons: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>;
   }>({visible: false, title: '', message: '', buttons: []});
 
+  // Check if user has valet_billing role
+  const isValetBilling = session?.user?.role === 'valet_billing';
+
   useEffect(() => {
     loadProfile();
+    loadLocations();
   }, []);
 
   const loadProfile = async () => {
@@ -41,10 +53,66 @@ export default function ProfileScreen() {
       setLoading(true);
       const data = await getDriverProfile();
       setProfile(data);
+      
+      // Set existing ETA value if available
+      if (data.pickupEstimatedMinutes) {
+        setEtaMinutes(data.pickupEstimatedMinutes.toString());
+      }
     } catch (error) {
       console.error('Failed to load profile:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadLocations = async () => {
+    try {
+      const response = await getClientLocations();
+      setLocations(response.locations || []);
+    } catch (error) {
+      console.error('Failed to load locations:', error);
+    }
+  };
+
+  const handleEditETA = () => {
+    // Enable editing mode
+    setIsEditingETA(true);
+  };
+
+  const handleSetETA = async () => {
+    const minutes = parseInt(etaMinutes, 10);
+    
+    if (!etaMinutes || isNaN(minutes) || minutes <= 0) {
+      Alert.alert('Invalid Input', 'Please enter a valid number of minutes.');
+      return;
+    }
+
+    if (locations.length === 0) {
+      Alert.alert('No Location', 'No location found. Please try again later.');
+      return;
+    }
+
+    setSettingETA(true);
+    try {
+      await updatePickupETA({
+        locationId: locations[0].id,
+        pickupEstimatedMinutes: minutes,
+      });
+
+      setDialog({
+        visible: true,
+        title: 'Success',
+        message: `Pickup ETA updated to ${minutes} minutes successfully!`,
+        buttons: [{text: 'OK', onPress: () => setDialog({...dialog, visible: false})}],
+      });
+      
+      // Exit edit mode after successful update
+      setIsEditingETA(false);
+    } catch (error) {
+      logError('ProfileScreen.handleSetETA', error);
+      Alert.alert('Error', getUserFriendlyMessage(error));
+    } finally {
+      setSettingETA(false);
     }
   };
 
@@ -126,6 +194,42 @@ export default function ProfileScreen() {
             </View>
           )}
         </View>
+
+        {/* ETA Setting Section - Only visible for valet_billing role */}
+        {isValetBilling && (
+          <View style={styles.etaCard}>
+            <Text style={styles.etaTitle}>Set Pickup ETA</Text>
+            <Text style={styles.etaSubtitle}>Set estimated time for pickup in minutes</Text>
+            
+            <View style={styles.etaInputContainer}>
+              <TextInput
+                style={[styles.etaInput, !isEditingETA && styles.etaInputDisabled]}
+                placeholder="Enter minutes"
+                placeholderTextColor={COLORS.textSecondary}
+                keyboardType="numeric"
+                value={etaMinutes}
+                onChangeText={setEtaMinutes}
+                editable={isEditingETA && !settingETA}
+              />
+              <TouchableOpacity
+                style={[styles.etaButton, settingETA && styles.etaButtonDisabled]}
+                onPress={isEditingETA ? handleSetETA : handleEditETA}
+                disabled={settingETA}>
+                {settingETA ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <LinearGradient
+                    colors={['#76D0E3', '#3156D8']}
+                    start={{x: 0, y: 0}}
+                    end={{x: 1, y: 1}}
+                    style={styles.etaButtonGradient}>
+                    <Text style={styles.etaButtonText}>{isEditingETA ? 'Set' : 'Edit'}</Text>
+                  </LinearGradient>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
@@ -319,5 +423,64 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.gradientEnd,
+  },
+  etaCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    ...SHADOWS.medium,
+  },
+  etaTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 4,
+  },
+  etaSubtitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginBottom: 16,
+  },
+  etaInputContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  etaInput: {
+    flex: 1,
+    height: Platform.OS === 'ios' ? 56 : 52,
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: 12,
+    paddingHorizontal: Platform.OS === 'ios' ? 18 : 16,
+    paddingVertical: Platform.OS === 'ios' ? 16 : 0,
+    fontSize: Platform.OS === 'ios' ? 17 : 16,
+    color: COLORS.textPrimary,
+    fontWeight: '500',
+  },
+  etaInputDisabled: {
+    opacity: 0.6,
+    backgroundColor: '#f0f0f0',
+  },
+  etaButton: {
+    height: Platform.OS === 'ios' ? 56 : 52,
+    borderRadius: 12,
+    overflow: 'hidden',
+    minWidth: 80,
+  },
+  etaButtonDisabled: {
+    opacity: 0.6,
+  },
+  etaButtonGradient: {
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  etaButtonText: {
+    color: '#ffffff',
+    fontSize: Platform.OS === 'ios' ? 17 : 16,
+    fontWeight: '700',
+    letterSpacing: Platform.OS === 'ios' ? -0.4 : 0,
   },
 });

@@ -187,3 +187,15 @@ export async function apiPost<T>(
     headers: isFormData ? {'Content-Type': 'multipart/form-data'} : undefined,
   });
 }
+
+export async function apiPut<T>(
+  path: string,
+  body: any,
+  auth = false,
+): Promise<T> {
+  return doFetch(path, {
+    method: 'PUT',
+    body,
+    auth,
+  });
+}

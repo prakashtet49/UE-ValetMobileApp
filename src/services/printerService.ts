@@ -1,7 +1,10 @@
 import {logError} from '../utils/errorHandler';
-import {NativeModules, Platform} from 'react-native';
+import {NativeModules, Platform, Alert} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const {BluetoothManager} = NativeModules;
+
+const PRINTER_STORAGE_KEY = '@connected_printer';
 
 export type PrinterDevice = {
   id: string;
@@ -64,32 +67,26 @@ class PrinterService {
       console.log('[PrinterService] Found bonded devices:', devices?.length || 0);
       
       if (!devices || devices.length === 0) {
+        console.log('[PrinterService] No bonded devices found');
         return [];
       }
 
-      // Filter and map devices
+      // Log all bonded devices for debugging
+      console.log('[PrinterService] All bonded devices:');
+      devices.forEach((device: any, index: number) => {
+        console.log(`  ${index + 1}. Name: "${device.name}", Address: ${device.address}`);
+      });
+
+      // Filter and map devices - Show ALL bonded devices for now
+      // This allows users to see and select any paired Bluetooth device
       const printers = devices
         .filter((device: any) => {
-          // Filter out devices without proper info
+          // Only filter out devices without proper info
           if (!device.address || !device.name) {
+            console.log('[PrinterService] Filtered out device with missing info:', device);
             return false;
           }
-          
-          // Common printer name patterns (case-insensitive)
-          const name = device.name.toLowerCase();
-          const isPrinter = 
-            name.includes('printer') ||
-            name.includes('thermal') ||
-            name.includes('pos') ||
-            name.includes('receipt') ||
-            name.includes('bluetooth') ||
-            name.includes('bt-') ||
-            name.includes('rpp') ||
-            name.includes('mpt') ||
-            name.includes('zj-') ||
-            name.includes('tp-');
-          
-          return isPrinter;
+          return true;
         })
         .map((device: any) => ({
           id: device.address,
@@ -98,35 +95,159 @@ class PrinterService {
           bonded: true,
         }));
 
-      console.log('[PrinterService] Found potential printers:', printers.length);
+      console.log('[PrinterService] Showing all paired devices:', printers.length);
+      printers.forEach((printer: PrinterDevice, index: number) => {
+        console.log(`  ${index + 1}. ${printer.name} (${printer.address})`);
+      });
+      
       return printers;
-    } catch (error) {
+    } catch (error: any) {
+      // Check if it's a Bluetooth disabled error
+      if (error?.code === 'BLUETOOTH_DISABLED' || 
+          error?.message?.toLowerCase().includes('bluetooth is disabled')) {
+        Alert.alert(
+          'Bluetooth Disabled',
+          'Please enable Bluetooth to scan for printers.',
+          [
+            {text: 'OK', style: 'default'}
+          ]
+        );
+        return [];
+      }
+      
+      // For other errors, log and show generic message
       logError('PrinterService.scanForPrinters', error);
-      console.log('[PrinterService] Error scanning for printers, returning empty list');
+      Alert.alert(
+        'Scan Failed',
+        'Unable to scan for printers. Please check Bluetooth is enabled and permissions are granted.',
+        [{text: 'OK', style: 'default'}]
+      );
       return [];
     }
   }
 
   /**
-   * Connect to a specific Bluetooth printer (Mock)
+   * Connect to a specific Bluetooth printer
    */
   async connectToPrinter(device: PrinterDevice): Promise<boolean> {
-    console.log('[PrinterService] Mock: Connecting to printer:', device.name);
+    console.log('[PrinterService] Connecting to printer:', device.name);
     
-    // Simulate connection delay
-    await new Promise<void>(resolve => setTimeout(() => resolve(), 500));
-    
-    this.connectedDeviceInfo = device;
-    console.log('[PrinterService] Mock: Connected to printer:', device.name);
-    return true;
+    try {
+      if (Platform.OS !== 'android') {
+        console.log('[PrinterService] Bluetooth printing only supported on Android');
+        return false;
+      }
+
+      if (!BluetoothManager || !BluetoothManager.connectToDevice) {
+        console.log('[PrinterService] Native Bluetooth module not available');
+        return false;
+      }
+
+      await BluetoothManager.connectToDevice(device.address);
+      this.connectedDeviceInfo = device;
+      
+      // Save connected printer to AsyncStorage for persistence
+      await this.saveConnectedPrinter(device);
+      
+      console.log('[PrinterService] Connected to printer:', device.name);
+      return true;
+    } catch (error) {
+      logError('PrinterService.connectToPrinter', error);
+      throw error;
+    }
   }
 
   /**
-   * Disconnect from current printer (Mock)
+   * Disconnect from current printer
    */
   async disconnect(): Promise<void> {
-    console.log('[PrinterService] Mock: Disconnecting from printer');
-    this.connectedDeviceInfo = null;
+    console.log('[PrinterService] Disconnecting from printer');
+    
+    try {
+      if (Platform.OS === 'android' && BluetoothManager && BluetoothManager.disconnect) {
+        BluetoothManager.disconnect();
+      }
+      this.connectedDeviceInfo = null;
+      
+      // Clear saved printer from storage
+      await this.clearSavedPrinter();
+    } catch (error) {
+      logError('PrinterService.disconnect', error);
+    }
+  }
+
+  /**
+   * Save connected printer to AsyncStorage
+   */
+  private async saveConnectedPrinter(device: PrinterDevice): Promise<void> {
+    try {
+      await AsyncStorage.setItem(PRINTER_STORAGE_KEY, JSON.stringify(device));
+      console.log('[PrinterService] Saved printer to storage:', device.name);
+    } catch (error) {
+      logError('PrinterService.saveConnectedPrinter', error);
+    }
+  }
+
+  /**
+   * Load saved printer from AsyncStorage
+   */
+  private async loadSavedPrinter(): Promise<PrinterDevice | null> {
+    try {
+      const saved = await AsyncStorage.getItem(PRINTER_STORAGE_KEY);
+      if (saved) {
+        const device = JSON.parse(saved) as PrinterDevice;
+        console.log('[PrinterService] Loaded saved printer:', device.name);
+        return device;
+      }
+      return null;
+    } catch (error) {
+      logError('PrinterService.loadSavedPrinter', error);
+      return null;
+    }
+  }
+
+  /**
+   * Clear saved printer from AsyncStorage
+   */
+  private async clearSavedPrinter(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(PRINTER_STORAGE_KEY);
+      console.log('[PrinterService] Cleared saved printer from storage');
+    } catch (error) {
+      logError('PrinterService.clearSavedPrinter', error);
+    }
+  }
+
+  /**
+   * Auto-reconnect to last connected printer
+   */
+  async autoReconnect(): Promise<boolean> {
+    console.log('[PrinterService] Attempting auto-reconnect...');
+    
+    try {
+      const savedPrinter = await this.loadSavedPrinter();
+      if (!savedPrinter) {
+        console.log('[PrinterService] No saved printer found');
+        return false;
+      }
+
+      console.log('[PrinterService] Found saved printer, attempting to reconnect:', savedPrinter.name);
+      
+      // Try to reconnect
+      const connected = await this.connectToPrinter(savedPrinter);
+      
+      if (connected) {
+        console.log('[PrinterService] Auto-reconnect successful');
+      } else {
+        console.log('[PrinterService] Auto-reconnect failed');
+      }
+      
+      return connected;
+    } catch (error) {
+      logError('PrinterService.autoReconnect', error);
+      console.log('[PrinterService] Auto-reconnect failed with error');
+      return false;
+    }
   }
 
   /**
@@ -144,27 +265,58 @@ class PrinterService {
   }
 
   /**
-   * Print raw data to thermal printer (Mock)
+   * Print raw data to thermal printer
    */
   async printRawData(base64Data: string): Promise<void> {
     if (!this.connectedDeviceInfo) {
       throw new Error('No printer connected. Please connect to a printer first.');
     }
 
-    console.log('[PrinterService] Mock: Printing data...');
-    console.log('[PrinterService] Mock: Base64 data length:', base64Data.length);
+    console.log('[PrinterService] Printing data...');
+    console.log('[PrinterService] Base64 data length:', base64Data.length);
     
-    // Simulate printing delay
-    await new Promise<void>(resolve => setTimeout(() => resolve(), 1000));
-    
-    console.log('[PrinterService] Mock: Print completed successfully');
+    try {
+      if (Platform.OS !== 'android') {
+        throw new Error('Bluetooth printing only supported on Android');
+      }
+
+      if (!BluetoothManager || !BluetoothManager.printRawData) {
+        throw new Error('Native Bluetooth module not available');
+      }
+
+      await BluetoothManager.printRawData(base64Data);
+      console.log('[PrinterService] Print completed successfully');
+    } catch (error) {
+      logError('PrinterService.printRawData', error);
+      throw error;
+    }
   }
 
   /**
-   * Check printer connection status (Mock)
+   * Check printer connection status
    */
   async checkConnection(): Promise<boolean> {
-    return this.connectedDeviceInfo !== null;
+    try {
+      if (Platform.OS !== 'android') {
+        return false;
+      }
+
+      if (!BluetoothManager || !BluetoothManager.isConnected) {
+        return this.connectedDeviceInfo !== null;
+      }
+
+      const connected = await BluetoothManager.isConnected();
+      
+      // Update local state if disconnected
+      if (!connected) {
+        this.connectedDeviceInfo = null;
+      }
+      
+      return connected;
+    } catch (error) {
+      logError('PrinterService.checkConnection', error);
+      return false;
+    }
   }
 }
 

@@ -1,6 +1,6 @@
 export const BASE_URL = 'https://urbaneasevalet-production.up.railway.app';
 
-export type HttpMethod = 'GET' | 'POST';
+export type HttpMethod = 'GET' | 'POST' | 'PUT';
 
 export type ApiError = {
   error?: string;

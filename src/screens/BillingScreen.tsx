@@ -19,7 +19,7 @@ import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
 import {useAuth} from '../context/AuthContext';
-import {getClientLocations, type Location} from '../api/driver';
+import {getClientLocations, assignLocation, type Location} from '../api/driver';
 import {getCompletedJobs, type CompletedJob} from '../api/jobs';
 import {printReceipt} from '../api/receipt';
 import type {BillingStackParamList} from '../navigation/AppNavigator';
@@ -52,10 +52,17 @@ export default function BillingScreen() {
   const [scanningPrinters, setScanningPrinters] = useState(false);
   const [printingJob, setPrintingJob] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [dialog, setDialog] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>;
+  }>({visible: false, title: '', message: '', buttons: []});
 
   useEffect(() => {
     loadLocations();
     loadWeather();
+    autoConnectPrinter();
   }, []);
 
   useFocusEffect(
@@ -63,6 +70,21 @@ export default function BillingScreen() {
       loadCompletedJobs();
     }, [])
   );
+
+  async function autoConnectPrinter() {
+    try {
+      const reconnected = await printerService.autoReconnect();
+      if (reconnected) {
+        const printer = printerService.getConnectedPrinter();
+        if (printer) {
+          setConnectedPrinter(printer);
+          console.log('[BillingScreen] Auto-reconnected to printer:', printer.name);
+        }
+      }
+    } catch (error) {
+      console.log('[BillingScreen] Auto-reconnect failed:', error);
+    }
+  }
 
   async function loadCompletedJobs() {
     // Prevent multiple simultaneous loads
@@ -111,12 +133,45 @@ export default function BillingScreen() {
   }
 
   const handleLocationSelect = async (location: Location) => {
-    setChangingLocation(true);
-    setShowLocationDropdown(false);
+    // Prevent multiple clicks
+    if (changingLocation) {
+      console.log('[BillingScreen] Location change already in progress, ignoring click');
+      return;
+    }
+
+    // Don't change if same location
+    if (selectedLocation?.id === location.id) {
+      console.log('[BillingScreen] Same location selected, closing dropdown');
+      setShowLocationDropdown(false);
+      return;
+    }
+
     try {
+      setChangingLocation(true);
+      console.log('[BillingScreen] Assigning location:', location.id, location.name);
+      
+      await assignLocation({locationId: location.id});
       setSelectedLocation(location);
+      setShowLocationDropdown(false);
+      
+      // Refresh completed jobs to get data for the new location
+      console.log('[BillingScreen] Location assigned successfully, refreshing completed jobs...');
+      await loadCompletedJobs();
+      
+      setDialog({
+        visible: true,
+        title: 'Success',
+        message: `Location changed to ${location.name}`,
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     } catch (error) {
-      console.error('Failed to change location', error);
+      console.error('Failed to assign location:', error);
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to change location. Please try again.',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
     } finally {
       setChangingLocation(false);
     }
@@ -222,10 +277,18 @@ export default function BillingScreen() {
     try {
       const devices = await printerService.scanForPrinters();
       setPrinters(devices);
-      setShowPrinterDialog(true);
+      if (devices.length > 0) {
+        setShowPrinterDialog(true);
+      } else {
+        Alert.alert(
+          'No Printers Found',
+          'No paired Bluetooth printers found. Please pair your printer in Bluetooth settings first.',
+        );
+      }
     } catch (error) {
-      logError('BillingScreen.handleScanPrinters', error);
-      Alert.alert('Error', getUserFriendlyMessage(error));
+      // Error is already handled in printerService with Alert dialog
+      // Just log it here for debugging
+      console.log('[BillingScreen] Scan error handled by printerService');
     } finally {
       setScanningPrinters(false);
     }
@@ -244,48 +307,31 @@ export default function BillingScreen() {
   };
 
   const handlePrint = async (job: CompletedJob) => {
-    // Check if printer is connected
-    const isConnected = await printerService.checkConnection();
-    
-    if (!isConnected) {
-      Alert.alert(
-        'Printer Not Connected',
-        'Would you like to scan for printers?',
-        [
-          {text: 'Cancel', style: 'cancel'},
-          {text: 'Scan', onPress: handleScanPrinters},
-        ],
-      );
-      return;
-    }
-
-    // Show confirmation dialog
-    Alert.alert(
-      'Generate Bill',
-      `Generate receipt for ${job.vehicleNumber}?`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {
-          text: 'Generate',
-          onPress: () => handlePrintConfirmed(job),
-        },
-      ],
-    );
-  };
-
-  const handlePrintConfirmed = async (job: CompletedJob) => {
+    // Start printing immediately
     setPrintingJob(job.id);
     try {
+      // Check if printer is connected
+      const isConnected = await printerService.checkConnection();
+      
+      if (!isConnected) {
+        setPrintingJob(null);
+        Alert.alert(
+          'Printer Not Connected',
+          'Please connect to a printer first using the printer icon in the header.',
+        );
+        return;
+      }
+
       // Call backend API to get receipt data
       const response = await printReceipt(job.bookingId, job.vehicleNumber);
 
       // Print to thermal printer
       await printerService.printRawData(response.printBuffer);
 
-      // Show success message
+      // Show success message AFTER printing completes
       Alert.alert(
-        'Receipt Printed',
-        `Charges: ₹${response.receiptData.charges}\nDuration: ${response.receiptData.duration}`,
+        'Receipt Printed Successfully',
+        `Vehicle: ${job.vehicleNumber}\nCharges: ₹${response.receiptData.charges}\nDuration: ${response.receiptData.duration}`,
         [
           {
             text: 'OK',
@@ -297,7 +343,7 @@ export default function BillingScreen() {
         ],
       );
     } catch (error) {
-      logError('BillingScreen.handlePrintConfirmed', error);
+      logError('BillingScreen.handlePrint', error);
       Alert.alert('Print Failed', getUserFriendlyMessage(error));
     } finally {
       setPrintingJob(null);
@@ -568,6 +614,15 @@ export default function BillingScreen() {
           </View>
         </View>
       )}
+
+      {/* Location Change Dialog */}
+      <CustomDialog
+        visible={dialog.visible}
+        title={dialog.title}
+        message={dialog.message}
+        buttons={dialog.buttons}
+        onDismiss={() => setDialog({...dialog, visible: false})}
+      />
 
       {/* Content Area */}
       {loading ? (

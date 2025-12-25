@@ -1,4 +1,4 @@
-import {apiGet, apiPost} from './client';
+import {apiGet, apiPost, apiPut} from './client';
 
 // Driver Profile Types
 export type DriverProfile = {
@@ -6,6 +6,7 @@ export type DriverProfile = {
   name: string;
   phone: string;
   clientName?: string;
+  pickupEstimatedMinutes?: number;
 };
 
 export type Location = {
@@ -91,6 +92,27 @@ export async function generateAccessToken(
   return apiPost<GenerateAccessTokenResponse>(
     `/api/drivers/${driverId}/access-token`,
     payload || {},
+    true,
+  );
+}
+
+// Pickup ETA Types
+export type UpdatePickupETARequest = {
+  locationId: string;
+  pickupEstimatedMinutes: number;
+};
+
+export type UpdatePickupETAResponse = {
+  success: boolean;
+  locationId: string;
+  pickupEstimatedMinutes: number;
+};
+
+// Pickup ETA API
+export async function updatePickupETA(payload: UpdatePickupETARequest) {
+  return apiPut<UpdatePickupETAResponse>(
+    '/api/v1/locations/pickup-eta',
+    payload,
     true,
   );
 }

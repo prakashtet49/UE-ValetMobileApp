@@ -235,7 +235,7 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
               onPress={onContinueOtp}
               disabled={submitting}
               style={styles.primaryButton}>
-              {submitting ? 'Authenticating...' : 'Continue with OTP'}
+              {submitting ? 'Authenticating...' : 'Continue'}
             </GradientButton>
 
             <TouchableOpacity style={styles.secondaryButton} onPress={onTempToken}>
