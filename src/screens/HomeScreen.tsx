@@ -11,6 +11,7 @@ import {
   Animated,
   Dimensions,
   PanResponder,
+  Linking,
 } from 'react-native';
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../utils/responsive';
 import {useNavigation, useFocusEffect, useRoute} from '@react-navigation/native';
@@ -20,7 +21,7 @@ import {useAuth} from '../context/AuthContext';
 import {getTodayJobStats} from '../api/stats';
 import {getJobsStats} from '../api/jobs';
 import {pauseShift, startShift} from '../api/shifts';
-import {getPendingPickupRequests} from '../api/pickup';
+import {getPendingPickupRequests, getCurrentPickupJob} from '../api/pickup';
 import {markVehicleArrived, markVehicleHandedOver} from '../api/parking';
 import {getClientLocations, assignLocation, type Location} from '../api/driver';
 import type {AppStackParamList} from '../navigation/AppNavigator';
@@ -29,6 +30,7 @@ import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {useValetRealtime} from '../hooks/useValetRealtime';
 import {fetchWeatherData, getFallbackWeather, type WeatherData} from '../services/weatherService';
+import {testNotification} from '../services/notificationService';
 
 const parkIcon = require('../assets/icons/park_icon.png');
 const carParkingIcon = require('../assets/icons/car_parking.png');
@@ -97,6 +99,8 @@ export default function HomeScreen() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherError, setWeatherError] = useState<string | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
+  const [lastWeatherFetch, setLastWeatherFetch] = useState<number>(0);
+  const [weatherRetryCount, setWeatherRetryCount] = useState<number>(0);
   
   // Floating shapes animation
   const [shape1] = useState(new Animated.ValueXY({x: 50, y: 100}));
@@ -332,30 +336,64 @@ export default function HomeScreen() {
     ).start();
   };
 
-  // Load dynamic weather data
-  const loadWeather = async () => {
+  // Load dynamic weather data with caching (30 minutes) and retry limit
+  const loadWeather = async (forceRefresh = false) => {
+    const now = Date.now();
+    const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
+    const MAX_RETRIES = 5;
+    
+    // Skip if we have recent data and not forcing refresh
+    if (!forceRefresh && weather && (now - lastWeatherFetch) < CACHE_DURATION) {
+      console.log('[HomeScreen] Using cached weather data');
+      return;
+    }
+    
+    // If force refresh, reset retry count
+    if (forceRefresh) {
+      setWeatherRetryCount(0);
+    }
+    
+    // Check if we've exceeded retry limit
+    if (weatherRetryCount >= MAX_RETRIES) {
+      console.log('[HomeScreen] Weather retry limit reached, showing error');
+      setWeatherError('Unable to load weather');
+      setWeatherLoading(false);
+      const fallbackData = getFallbackWeather();
+      setWeather(fallbackData);
+      return;
+    }
+    
     setWeatherLoading(true);
     setWeatherError(null);
     
     try {
-      console.log('[HomeScreen] Fetching weather data...');
       const weatherData = await fetchWeatherData();
       setWeather(weatherData);
       setWeatherError(null);
-      console.log('[HomeScreen] Weather data loaded successfully');
+      setLastWeatherFetch(now);
+      setWeatherRetryCount(0); // Reset retry count on success
+      setWeatherLoading(false);
+      console.log('[HomeScreen] Weather data fetched and cached');
     } catch (error: any) {
-      console.error('[HomeScreen] Failed to load weather:', error);
-      const errorMessage = error.message || 'Unable to load weather';
-      setWeatherError(errorMessage);
+      const newRetryCount = weatherRetryCount + 1;
+      setWeatherRetryCount(newRetryCount);
+      
+      console.log(`[HomeScreen] Weather fetch failed (attempt ${newRetryCount}/${MAX_RETRIES})`);
       
       // Use fallback weather data
       const fallbackData = getFallbackWeather();
       setWeather(fallbackData);
       
-      // Show user-friendly message
-      console.log('[HomeScreen] Using fallback weather data');
-    } finally {
-      setWeatherLoading(false);
+      // If we've reached max retries, show error and stop loading
+      if (newRetryCount >= MAX_RETRIES) {
+        setWeatherError('Unable to load weather');
+        setWeatherLoading(false);
+        setLastWeatherFetch(now);
+      } else {
+        // Keep loading spinner while retrying
+        // Auto-retry after a delay
+        setTimeout(() => loadWeather(false), 2000);
+      }
     }
   };
 
@@ -480,15 +518,42 @@ export default function HomeScreen() {
   useFocusEffect(
     React.useCallback(() => {
       // Check if there's an active pickup job passed via navigation
+      console.log('[HomeScreen] useFocusEffect - route.params:', route.params);
       if (route.params?.activePickupJob) {
-        console.log('[HomeScreen] Setting active pickup job from route params');
+        console.log('[HomeScreen] Setting active pickup job from route params:', route.params.activePickupJob);
         setActivePickupJob(route.params.activePickupJob);
         setPickupStatus('pending'); // Reset status when new job arrives
         
         // Clear the route params to prevent re-showing the banner
         navigation.setParams({activePickupJob: undefined} as any);
+      } else {
+        console.log('[HomeScreen] No active pickup job in route params');
+        
+        // Check for current ongoing pickup job for valet role (not valet_billing)
+        if (session?.user?.role === 'valet') {
+          console.log('[HomeScreen] Checking for current pickup job for valet role');
+          getCurrentPickupJob()
+            .then(response => {
+              console.log('[HomeScreen] Current pickup job response:', response);
+              if (response.success && response.pickupJob) {
+                console.log('[HomeScreen] Found ongoing pickup job, showing banner:', response.pickupJob);
+                setActivePickupJob(response.pickupJob);
+                // Determine status based on pickup job status
+                if (response.pickupJob.status === 'assigned') {
+                  setPickupStatus('pending');
+                } else if (response.pickupJob.status === 'arrived') {
+                  setPickupStatus('arrived');
+                }
+              } else {
+                console.log('[HomeScreen] No current pickup job found');
+              }
+            })
+            .catch(error => {
+              console.error('[HomeScreen] Failed to fetch current pickup job:', error);
+            });
+        }
       }
-    }, [route.params?.activePickupJob, navigation])
+    }, [route.params?.activePickupJob, navigation, session?.user?.role])
   );
 
   const handlePickupAction = async () => {
@@ -760,7 +825,7 @@ export default function HomeScreen() {
             {weatherLoading ? (
               <ActivityIndicator size="small" color={COLORS.gradientEnd} />
             ) : weatherError ? (
-              <TouchableOpacity onPress={loadWeather} style={styles.weatherErrorContainer}>
+              <TouchableOpacity onPress={() => loadWeather(true)} style={styles.weatherErrorContainer}>
                 <Text style={styles.weatherErrorIcon}>⚠️</Text>
                 <Text style={styles.weatherErrorText}>Tap to retry</Text>
               </TouchableOpacity>
@@ -947,6 +1012,18 @@ export default function HomeScreen() {
                   <Text style={styles.pickupBannerLabel}>Slot:</Text>
                   <Text style={styles.pickupBannerValue}>{activePickupJob.slotNumber}</Text>
                 </View>
+                {activePickupJob.phoneNumber && (
+                  <View style={styles.pickupBannerRow}>
+                    <Text style={styles.pickupBannerLabel}>Customer:</Text>
+                    <TouchableOpacity 
+                      style={styles.phoneContainer}
+                      onPress={() => Linking.openURL(`tel:${activePickupJob.phoneNumber}`)}
+                    >
+                      <Text style={styles.pickupBannerValue}>{activePickupJob.phoneNumber}</Text>
+                      <Text style={styles.callIcon}>📞</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
                 {activePickupJob.locationDescription && (
                   <View style={styles.pickupBannerRow}>
                     <Text style={styles.pickupBannerLabel}>Remarks:</Text>
@@ -967,8 +1044,7 @@ export default function HomeScreen() {
               ) : (
                 <GradientButton
                   onPress={handlePickupAction}
-                  disabled={isProcessing}
-                  style={styles.pickupActionButton}>
+                  disabled={isProcessing}>
                   {pickupStatus === 'pending' ? 'ARRIVED' : 'DELIVERED'}
                 </GradientButton>
               )}
@@ -1379,6 +1455,16 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(14),
     fontWeight: '700',
     color: COLORS.textPrimary,
+  },
+  phoneContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  callIcon: {
+    fontSize: getResponsiveFontSize(18),
+    marginLeft: 4,
+    color: '#FF0000',
   },
   pickupActionButtonContainer: {
     marginTop: verticalScale(16),

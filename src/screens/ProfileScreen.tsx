@@ -20,6 +20,7 @@ import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import {logError, getUserFriendlyMessage} from '../utils/errorHandler';
+import appConfig from '../../app.json';
 
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
 const logoutIcon = require('../assets/icons/logout.png');
@@ -242,6 +243,11 @@ export default function ProfileScreen() {
             <Text style={[styles.actionText, styles.logoutText]}>Logout</Text>
             <Text style={styles.actionArrow}>›</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* App Version */}
+        <View style={styles.versionContainer}>
+          <Text style={styles.versionText}>Version {appConfig.version}</Text>
         </View>
       </View>
 
@@ -482,5 +488,15 @@ const styles = StyleSheet.create({
     fontSize: Platform.OS === 'ios' ? 17 : 16,
     fontWeight: '700',
     letterSpacing: Platform.OS === 'ios' ? -0.4 : 0,
+  },
+  versionContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    marginTop: 'auto',
+  },
+  versionText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    fontWeight: '500',
   },
 });

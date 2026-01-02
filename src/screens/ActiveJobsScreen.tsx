@@ -9,6 +9,7 @@ import {
   Image,
   TextInput,
   TouchableOpacity,
+  Linking,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -338,6 +339,18 @@ export default function ActiveJobsScreen() {
               Are you sure you want to checkout vehicle{' '}
               <Text style={styles.dialogVehicle}>{checkoutDialog.job.vehicleNumber}</Text>?
             </Text>
+            {checkoutDialog.job.customerPhone && (
+              <View style={styles.dialogPhoneContainer}>
+                <Text style={styles.dialogPhoneLabel}>Customer:</Text>
+                <TouchableOpacity 
+                  style={styles.dialogPhoneButton}
+                  onPress={() => Linking.openURL(`tel:${checkoutDialog.job!.customerPhone}`)}
+                >
+                  <Text style={styles.dialogPhoneNumber}>{checkoutDialog.job.customerPhone}</Text>
+                  <Text style={styles.dialogCallIcon}>📞</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             <View style={styles.dialogButtons}>
               <TouchableOpacity
                 onPress={handleCheckoutCancel}
@@ -654,6 +667,37 @@ const styles = StyleSheet.create({
   dialogVehicle: {
     fontWeight: '700',
     color: COLORS.textPrimary,
+  },
+  dialogPhoneContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: 8,
+  },
+  dialogPhoneLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.textSecondary,
+    marginRight: 8,
+  },
+  dialogPhoneButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dialogPhoneNumber: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  dialogCallIcon: {
+    fontSize: 18,
+    color: '#FF0000',
   },
   dialogButtons: {
     flexDirection: 'row',

@@ -6,12 +6,15 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import {getPickupJobDetails, updatePickupStatus} from '../api/pickup';
+import {stampImageWithWatermarkAndTimestamp} from '../utils/imageStamp';
+import ImagePreviewModal from '../components/ImagePreviewModal';
 
 // We don't have a detailed type from Swagger yet, so keep it loose but logged.
 type PickupJobDetail = any;
@@ -32,6 +35,11 @@ export default function PickupDetailScreen() {
   const [beforePhotoUri, setBeforePhotoUri] = useState<string | null>(null);
   const [handoverPhotoUri, setHandoverPhotoUri] = useState<string | null>(null);
   const [damagePhotoUri, setDamagePhotoUri] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<{visible: boolean; uri: string | null; photoType: 'before' | 'handover' | 'damage' | null}>({
+    visible: false,
+    uri: null,
+    photoType: null,
+  });
 
   const pickImage = async (
     which: 'before' | 'handover' | 'damage',
@@ -48,14 +56,16 @@ export default function PickupDetailScreen() {
         return;
       }
 
-      console.log('[PickupDetail] Selected photo', {which, uri: asset.uri});
+      const originalUri = asset.uri;
+      const stampedUri = await stampImageWithWatermarkAndTimestamp(originalUri);
+      console.log('[PickupDetail] Selected photo', {which, uri: stampedUri});
 
       if (which === 'before') {
-        setBeforePhotoUri(asset.uri);
+        setBeforePhotoUri(stampedUri);
       } else if (which === 'handover') {
-        setHandoverPhotoUri(asset.uri);
+        setHandoverPhotoUri(stampedUri);
       } else {
-        setDamagePhotoUri(asset.uri);
+        setDamagePhotoUri(stampedUri);
       }
     } catch (error) {
       console.error('[PickupDetail] Failed to select photo', {which, source, error});
@@ -125,6 +135,7 @@ export default function PickupDetailScreen() {
   }
 
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.card}>
         <View style={styles.headerRow}>
@@ -226,6 +237,25 @@ export default function PickupDetailScreen() {
 
         <View style={styles.photoBlock}>
           <Text style={styles.photoLabel}>Before pickup</Text>
+          <View style={styles.photoThumbnailContainer}>
+            {beforePhotoUri ? (
+              <TouchableOpacity
+                style={styles.photoThumbnail}
+                onPress={() => setPreviewImage({visible: true, uri: beforePhotoUri, photoType: 'before'})}>
+                <Image source={{uri: beforePhotoUri}} style={styles.photoThumbnailImage} />
+                <TouchableOpacity
+                  style={styles.cancelIcon}
+                  onPress={() => setBeforePhotoUri(null)}
+                  activeOpacity={0.7}>
+                  <Text style={styles.cancelIconText}>✕</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.photoEmpty}>
+                <Text style={styles.photoEmptyIcon}>📷</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.photoActionsRow}>
             <TouchableOpacity
               style={styles.photoButton}
@@ -238,15 +268,29 @@ export default function PickupDetailScreen() {
               <Text style={styles.photoButtonSecondaryText}>Gallery</Text>
             </TouchableOpacity>
           </View>
-          {beforePhotoUri ? (
-            <Text style={styles.photoStatusText}>Photo selected</Text>
-          ) : (
-            <Text style={styles.photoStatusTextMuted}>No photo</Text>
-          )}
         </View>
 
         <View style={styles.photoBlock}>
           <Text style={styles.photoLabel}>Handover</Text>
+          <View style={styles.photoThumbnailContainer}>
+            {handoverPhotoUri ? (
+              <TouchableOpacity
+                style={styles.photoThumbnail}
+                onPress={() => setPreviewImage({visible: true, uri: handoverPhotoUri, photoType: 'handover'})}>
+                <Image source={{uri: handoverPhotoUri}} style={styles.photoThumbnailImage} />
+                <TouchableOpacity
+                  style={styles.cancelIcon}
+                  onPress={() => setHandoverPhotoUri(null)}
+                  activeOpacity={0.7}>
+                  <Text style={styles.cancelIconText}>✕</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.photoEmpty}>
+                <Text style={styles.photoEmptyIcon}>📷</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.photoActionsRow}>
             <TouchableOpacity
               style={styles.photoButton}
@@ -259,15 +303,29 @@ export default function PickupDetailScreen() {
               <Text style={styles.photoButtonSecondaryText}>Gallery</Text>
             </TouchableOpacity>
           </View>
-          {handoverPhotoUri ? (
-            <Text style={styles.photoStatusText}>Photo selected</Text>
-          ) : (
-            <Text style={styles.photoStatusTextMuted}>No photo</Text>
-          )}
         </View>
 
         <View style={styles.photoBlock}>
           <Text style={styles.photoLabel}>Damage (if any)</Text>
+          <View style={styles.photoThumbnailContainer}>
+            {damagePhotoUri ? (
+              <TouchableOpacity
+                style={styles.photoThumbnail}
+                onPress={() => setPreviewImage({visible: true, uri: damagePhotoUri, photoType: 'damage'})}>
+                <Image source={{uri: damagePhotoUri}} style={styles.photoThumbnailImage} />
+                <TouchableOpacity
+                  style={styles.cancelIcon}
+                  onPress={() => setDamagePhotoUri(null)}
+                  activeOpacity={0.7}>
+                  <Text style={styles.cancelIconText}>✕</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.photoEmpty}>
+                <Text style={styles.photoEmptyIcon}>📷</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.photoActionsRow}>
             <TouchableOpacity
               style={styles.photoButton}
@@ -280,14 +338,21 @@ export default function PickupDetailScreen() {
               <Text style={styles.photoButtonSecondaryText}>Gallery</Text>
             </TouchableOpacity>
           </View>
-          {damagePhotoUri ? (
-            <Text style={styles.photoStatusText}>Photo selected</Text>
-          ) : (
-            <Text style={styles.photoStatusTextMuted}>No photo</Text>
-          )}
         </View>
       </View>
     </ScrollView>
+
+    <ImagePreviewModal
+      visible={previewImage.visible}
+      imageUri={previewImage.uri}
+      onClose={() => setPreviewImage({visible: false, uri: null, photoType: null})}
+      onRecapture={() => {
+        if (previewImage.photoType) {
+          pickImage(previewImage.photoType, 'camera');
+        }
+      }}
+    />
+    </>
   );
 }
 
@@ -443,5 +508,54 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 11,
     color: '#6b7280',
+  },
+  photoThumbnailContainer: {
+    marginBottom: 8,
+  },
+  photoThumbnail: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 8,
+    overflow: 'visible',
+    position: 'relative',
+  },
+  photoThumbnailImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  cancelIcon: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  cancelIconText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  photoEmpty: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 8,
+    backgroundColor: '#1f2937',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  photoEmptyIcon: {
+    fontSize: 32,
   },
 });

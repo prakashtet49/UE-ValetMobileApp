@@ -13,7 +13,9 @@ import {
   PermissionsAndroid,
   Platform,
   TextInput,
+  Modal,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../utils/responsive';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -21,7 +23,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import {useAuth} from '../context/AuthContext';
 import {getClientLocations, assignLocation, type Location} from '../api/driver';
 import {getCompletedJobs, type CompletedJob} from '../api/jobs';
-import {printReceipt} from '../api/receipt';
+import {printReceipt, calculateReceipt, printReceiptWithOverride, getTodaySummary, type CalculateReceiptResponse, type TodaySummaryResponse} from '../api/receipt';
 import type {BillingStackParamList} from '../navigation/AppNavigator';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {fetchWeatherData, getFallbackWeather, type WeatherData} from '../services/weatherService';
@@ -58,6 +60,16 @@ export default function BillingScreen() {
     message: string;
     buttons: Array<{text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive'}>;
   }>({visible: false, title: '', message: '', buttons: []});
+  const [showSettlementDialog, setShowSettlementDialog] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<CompletedJob | null>(null);
+  const [calculatedAmount, setCalculatedAmount] = useState<number | null>(null);
+  const [settlementAmount, setSettlementAmount] = useState('');
+  const [calculatingAmount, setCalculatingAmount] = useState(false);
+  const [printingFromDialog, setPrintingFromDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'summary'>('all');
+  const [summaryData, setSummaryData] = useState<TodaySummaryResponse | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
     loadLocations();
@@ -70,6 +82,12 @@ export default function BillingScreen() {
       loadCompletedJobs();
     }, [])
   );
+
+  useEffect(() => {
+    if (activeTab === 'summary') {
+      loadTodaySummary();
+    }
+  }, [activeTab]);
 
   async function autoConnectPrinter() {
     try {
@@ -95,6 +113,9 @@ export default function BillingScreen() {
     try {
       const response = await getCompletedJobs(50, 0);
       console.log('[BillingScreen] Completed jobs response:', response);
+      if (response.data && response.data.length > 0) {
+        console.log('[BillingScreen] First job sample:', JSON.stringify(response.data[0], null, 2));
+      }
       setCompletedJobs(response.data || []);
     } catch (err) {
       logError('BillingScreen.loadCompletedJobs', err);
@@ -108,7 +129,22 @@ export default function BillingScreen() {
     try {
       const response = await getClientLocations();
       setLocations(response.locations || []);
+      
+      // Try to restore previously selected location
+      const savedLocationId = await AsyncStorage.getItem('billing_selected_location_id');
+      
+      if (savedLocationId && response.locations) {
+        const savedLocation = response.locations.find(loc => loc.id === savedLocationId);
+        if (savedLocation) {
+          console.log('[BillingScreen] Restored saved location:', savedLocation.name);
+          setSelectedLocation(savedLocation);
+          return;
+        }
+      }
+      
+      // Only set first location if no saved location exists
       if (response.locations && response.locations.length > 0) {
+        console.log('[BillingScreen] No saved location, using first location');
         setSelectedLocation(response.locations[0]);
       }
     } catch (error) {
@@ -152,6 +188,11 @@ export default function BillingScreen() {
       
       await assignLocation({locationId: location.id});
       setSelectedLocation(location);
+      
+      // Save selected location to AsyncStorage
+      await AsyncStorage.setItem('billing_selected_location_id', location.id);
+      console.log('[BillingScreen] Saved location to storage:', location.name);
+      
       setShowLocationDropdown(false);
       
       // Refresh completed jobs to get data for the new location
@@ -209,6 +250,23 @@ export default function BillingScreen() {
     return isNight ? '🌙' : '☀️';
   };
 
+  const loadTodaySummary = async () => {
+    setSummaryLoading(true);
+    setSummaryError(null);
+    try {
+      console.log('[BillingScreen] Loading today summary...');
+      const response = await getTodaySummary();
+      console.log('[BillingScreen] Summary response:', response);
+      setSummaryData(response);
+    } catch (error) {
+      console.error('[BillingScreen] Summary error:', error);
+      logError('BillingScreen.loadTodaySummary', error);
+      setSummaryError(getUserFriendlyMessage(error));
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
   const onRefresh = async () => {
     if (refreshing) return; // Prevent multiple simultaneous refreshes
     
@@ -218,8 +276,12 @@ export default function BillingScreen() {
       if (searchQuery) {
         setSearchQuery('');
       }
-      // Only refresh completed jobs - locations and weather don't change frequently
-      await loadCompletedJobs();
+      // Refresh based on active tab
+      if (activeTab === 'summary') {
+        await loadTodaySummary();
+      } else {
+        await loadCompletedJobs();
+      }
     } catch (error) {
       logError('BillingScreen.onRefresh', error);
     } finally {
@@ -227,7 +289,10 @@ export default function BillingScreen() {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string | undefined) => {
+    if (!status) {
+      return COLORS.textSecondary;
+    }
     switch (status.toLowerCase()) {
       case 'completed':
         return '#10B981';
@@ -302,19 +367,62 @@ export default function BillingScreen() {
       Alert.alert('Success', `Connected to ${printer.name}`);
     } catch (error) {
       logError('BillingScreen.handleConnectPrinter', error);
-      Alert.alert('Connection Failed', getUserFriendlyMessage(error));
+      
+      // Provide more helpful error message with retry option
+      Alert.alert(
+        'Connection Failed',
+        `Failed to connect to ${printer.name}.\n\nTips:\n• Make sure the printer is turned on\n• Ensure Bluetooth is enabled\n• Try moving closer to the printer\n• The printer may already be connected to another device`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Retry',
+            onPress: () => handleConnectPrinter(printer),
+          },
+        ],
+      );
     }
   };
 
-  const handlePrint = async (job: CompletedJob) => {
-    // Start printing immediately
-    setPrintingJob(job.id);
+  const handleGenerateBill = async (job: CompletedJob) => {
+    setSelectedJob(job);
+    setCalculatedAmount(null);
+    setSettlementAmount('');
+    setShowSettlementDialog(true);
+    
+    // Call calculate API
+    setCalculatingAmount(true);
+    try {
+      const response = await calculateReceipt(job.bookingId);
+      setCalculatedAmount(response.charges);
+      setSettlementAmount(response.charges.toString());
+    } catch (error) {
+      logError('BillingScreen.handleGenerateBill', error);
+      Alert.alert('Calculation Failed', getUserFriendlyMessage(error));
+      setShowSettlementDialog(false);
+    } finally {
+      setCalculatingAmount(false);
+    }
+  };
+
+  const handlePrintFromDialog = async () => {
+    if (!selectedJob || !settlementAmount) {
+      Alert.alert('Invalid Input', 'Please enter a settlement amount');
+      return;
+    }
+
+    const overrideAmount = parseFloat(settlementAmount);
+    if (isNaN(overrideAmount) || overrideAmount < 0) {
+      Alert.alert('Invalid Amount', 'Please enter a valid amount');
+      return;
+    }
+
+    setPrintingFromDialog(true);
     try {
       // Check if printer is connected
-      const isConnected = await printerService.checkConnection();
-      
-      if (!isConnected) {
-        setPrintingJob(null);
+      if (!connectedPrinter) {
         Alert.alert(
           'Printer Not Connected',
           'Please connect to a printer first using the printer icon in the header.',
@@ -322,42 +430,68 @@ export default function BillingScreen() {
         return;
       }
 
-      // Call backend API to get receipt data
-      const response = await printReceipt(job.bookingId, job.vehicleNumber);
+      // Call backend API with override amount
+      const response = await printReceiptWithOverride(
+        selectedJob.bookingId,
+        selectedJob.vehicleNumber,
+        overrideAmount
+      );
 
       // Print to thermal printer
       await printerService.printRawData(response.printBuffer);
 
-      // Show success message AFTER printing completes
+      // Close dialog and show success
+      setShowSettlementDialog(false);
       Alert.alert(
         'Receipt Printed Successfully',
-        `Vehicle: ${job.vehicleNumber}\nCharges: ₹${response.receiptData.charges}\nDuration: ${response.receiptData.duration}`,
+        `Vehicle: ${selectedJob.vehicleNumber}\nCharges: ₹${response.receiptData.charges}\nSettlement: ₹${response.receiptData.overrideAmount}\nDuration: ${response.receiptData.duration}`,
         [
           {
-            text: 'OK',
+            text: 'Done',
+            style: 'cancel',
             onPress: () => {
               // Remove printed job from list
-              setCompletedJobs(prev => prev.filter(j => j.id !== job.id));
+              setCompletedJobs(prev => prev.filter(j => j.id !== selectedJob.id));
+              setSelectedJob(null);
+            },
+          },
+          {
+            text: 'Reprint',
+            onPress: () => {
+              // Reprint the same receipt
+              handlePrintFromDialog();
             },
           },
         ],
       );
     } catch (error) {
-      logError('BillingScreen.handlePrint', error);
+      logError('BillingScreen.handlePrintFromDialog', error);
       Alert.alert('Print Failed', getUserFriendlyMessage(error));
     } finally {
-      setPrintingJob(null);
+      setPrintingFromDialog(false);
     }
   };
+
+  // Filter jobs based on active tab and receiptPrinted status
+  const tabFilteredJobs = useMemo(() => {
+    if (activeTab === 'all') {
+      // All tab shows all completed jobs
+      return completedJobs;
+    } else if (activeTab === 'pending') {
+      // Pending tab shows jobs with receiptPrinted = false
+      return completedJobs.filter(job => job.receiptPrinted === false);
+    }
+    return completedJobs;
+  }, [completedJobs, activeTab]);
 
   // Filter jobs based on search query
   const filteredJobs = useMemo(() => {
     if (!searchQuery.trim()) {
-      return completedJobs;
+      return tabFilteredJobs;
     }
 
     const query = searchQuery.toLowerCase().trim();
-    return completedJobs.filter(job => {
+    return tabFilteredJobs.filter(job => {
       // Search in vehicle number
       if (job.vehicleNumber.toLowerCase().includes(query)) {
         return true;
@@ -372,20 +506,13 @@ export default function BillingScreen() {
       }
       return false;
     });
-  }, [completedJobs, searchQuery]);
+  }, [tabFilteredJobs, searchQuery]);
 
   const renderJobItem = ({item}: {item: CompletedJob}) => (
     <View style={styles.jobCard}>
       <View style={styles.jobHeader}>
-        <View style={styles.jobHeaderLeft}>
-          <Text style={styles.vehicleNumber}>{item.vehicleNumber}</Text>
-          <Text style={styles.tagNumber}>Tag: {item.tagNumber}</Text>
-        </View>
-        <View style={[styles.statusBadge, {backgroundColor: getStatusColor(item.bookingStatus) + '20'}]}>
-          <Text style={[styles.statusBadgeText, {color: getStatusColor(item.bookingStatus)}]}>
-            {item.bookingStatus.toUpperCase()}
-          </Text>
-        </View>
+        <Text style={styles.vehicleNumber}>{item.vehicleNumber}</Text>
+        <Text style={styles.tagNumber}>Tag: {item.tagNumber}</Text>
       </View>
 
       <View style={styles.separator} />
@@ -411,17 +538,17 @@ export default function BillingScreen() {
 
       <TouchableOpacity 
         style={[styles.printButton, printingJob === item.id && styles.printButtonDisabled]} 
-        onPress={() => handlePrint(item)}
+        onPress={() => handleGenerateBill(item)}
         disabled={printingJob === item.id}>
         {printingJob === item.id ? (
           <>
             <ActivityIndicator size="small" color="#EF4444" />
-            <Text style={styles.printButtonText}>Printing...</Text>
+            <Text style={styles.printButtonText}>Generating...</Text>
           </>
         ) : (
           <>
-            <Text style={styles.printIcon}>🖨️</Text>
-            <Text style={styles.printButtonText}>Print</Text>
+            <Text style={styles.printIcon}>📄</Text>
+            <Text style={styles.printButtonText}>Generate Bill</Text>
           </>
         )}
       </TouchableOpacity>
@@ -568,6 +695,31 @@ export default function BillingScreen() {
         )}
       </View>
 
+      {/* Tabs */}
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'all' && styles.activeTab]}
+          onPress={() => setActiveTab('all')}>
+          <Text style={[styles.tabText, activeTab === 'all' && styles.activeTabText]}>
+            All
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'pending' && styles.activeTab]}
+          onPress={() => setActiveTab('pending')}>
+          <Text style={[styles.tabText, activeTab === 'pending' && styles.activeTabText]}>
+            Pending
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'summary' && styles.activeTab]}
+          onPress={() => setActiveTab('summary')}>
+          <Text style={[styles.tabText, activeTab === 'summary' && styles.activeTabText]}>
+            Summary
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Printer Selection Dialog */}
       {showPrinterDialog && printers.length === 0 && (
         <CustomDialog
@@ -624,44 +776,245 @@ export default function BillingScreen() {
         onDismiss={() => setDialog({...dialog, visible: false})}
       />
 
+      {/* Settlement Dialog */}
+      <Modal
+        visible={showSettlementDialog}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSettlementDialog(false)}>
+        <View style={styles.settlementDialogOverlay}>
+          <View style={styles.settlementDialogContainer}>
+            <Text style={styles.settlementDialogTitle}>Settlement Amount</Text>
+            
+            {calculatingAmount ? (
+              <View style={styles.calculatingContainer}>
+                <ActivityIndicator size="large" color={COLORS.gradientEnd} />
+                <Text style={styles.calculatingText}>Calculating amount...</Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.amountDisplayContainer}>
+                  <Text style={styles.amountLabel}>Calculated Amount:</Text>
+                  <Text style={styles.amountDisplay}>₹{calculatedAmount?.toFixed(2) || '0.00'}</Text>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Settlement Amount:</Text>
+                  <TextInput
+                    style={styles.settlementInput}
+                    value={settlementAmount}
+                    onChangeText={setSettlementAmount}
+                    keyboardType="numeric"
+                    placeholder="Enter amount"
+                    placeholderTextColor={COLORS.textSecondary}
+                  />
+                </View>
+
+                <View style={styles.dialogButtonsRow}>
+                  <TouchableOpacity
+                    style={styles.dialogCancelButton}
+                    onPress={() => setShowSettlementDialog(false)}
+                    disabled={printingFromDialog}>
+                    <Text style={styles.dialogCancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.dialogPrintButton, printingFromDialog && styles.dialogPrintButtonDisabled]}
+                    onPress={handlePrintFromDialog}
+                    disabled={printingFromDialog}>
+                    {printingFromDialog ? (
+                      <>
+                        <ActivityIndicator size="small" color="#ffffff" />
+                        <Text style={styles.dialogPrintButtonText}>Printing...</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.dialogPrintIcon}>🖨️</Text>
+                        <Text style={styles.dialogPrintButtonText}>Print</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Content Area */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.gradientEnd} />
-          <Text style={styles.loadingText}>Loading completed jobs...</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorEmoji}>⚠️</Text>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadCompletedJobs}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : completedJobs.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyEmoji}>📋</Text>
-          <Text style={styles.emptyText}>No completed jobs found</Text>
-        </View>
-      ) : filteredJobs.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyEmoji}>🔍</Text>
-          <Text style={styles.emptyText}>No jobs match your search</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => setSearchQuery('')}>
-            <Text style={styles.retryButtonText}>Clear Search</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredJobs}
-          renderItem={renderJobItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          showsVerticalScrollIndicator={false}
-        />
+      {activeTab === 'all' && (
+        loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.gradientEnd} />
+            <Text style={styles.loadingText}>Loading all jobs...</Text>
+          </View>
+        ) : error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorEmoji}>⚠️</Text>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={loadCompletedJobs}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : completedJobs.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyEmoji}>📋</Text>
+            <Text style={styles.emptyText}>No jobs found</Text>
+          </View>
+        ) : filteredJobs.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyEmoji}>🔍</Text>
+            <Text style={styles.emptyText}>No jobs match your search</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => setSearchQuery('')}>
+              <Text style={styles.retryButtonText}>Clear Search</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredJobs}
+            renderItem={renderJobItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )
+      )}
+
+      {activeTab === 'pending' && (
+        loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.gradientEnd} />
+            <Text style={styles.loadingText}>Loading pending jobs...</Text>
+          </View>
+        ) : error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorEmoji}>⚠️</Text>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={loadCompletedJobs}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : tabFilteredJobs.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyEmoji}>🚗</Text>
+            <Text style={styles.emptyText}>No pending jobs found</Text>
+            <Text style={styles.emptySubtext}>Jobs awaiting receipt printing</Text>
+          </View>
+        ) : filteredJobs.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyEmoji}>🔍</Text>
+            <Text style={styles.emptyText}>No jobs match your search</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => setSearchQuery('')}>
+              <Text style={styles.retryButtonText}>Clear Search</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredJobs}
+            renderItem={renderJobItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )
+      )}
+
+      {activeTab === 'summary' && (
+        summaryLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.gradientEnd} />
+            <Text style={styles.loadingText}>Loading today's summary...</Text>
+          </View>
+        ) : summaryError ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorEmoji}>⚠️</Text>
+            <Text style={styles.errorText}>{summaryError}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={loadTodaySummary}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : !summaryData ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyEmoji}>📊</Text>
+            <Text style={styles.emptyText}>No summary data available</Text>
+          </View>
+        ) : (
+          <ScrollView 
+            style={styles.summaryContainer}
+            contentContainerStyle={styles.summaryContent}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            showsVerticalScrollIndicator={false}>
+            
+            {/* Summary Header */}
+            <View style={styles.summaryHeader}>
+              <Text style={styles.summaryTitle}>Today's Summary</Text>
+              <Text style={styles.summaryDate}>{new Date(summaryData.date).toLocaleDateString('en-IN', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              })}</Text>
+            </View>
+
+            {/* Stats Cards */}
+            <View style={styles.statsGrid}>
+              <View style={styles.statCard}>
+                <Text style={styles.statIcon}>🚗</Text>
+                <Text style={styles.statValue}>{summaryData.summary.totalVehicles}</Text>
+                <Text style={styles.statLabel}>Total Vehicles</Text>
+              </View>
+
+              <View style={styles.statCard}>
+                <Text style={styles.statIcon}>💰</Text>
+                <Text style={styles.statValue}>₹{summaryData.summary.totalAmount.toFixed(2)}</Text>
+                <Text style={styles.statLabel}>Total Revenue</Text>
+              </View>
+            </View>
+
+            {/* Recent Transactions */}
+            {summaryData.transactions && summaryData.transactions.length > 0 && (
+              <View style={styles.receiptsSection}>
+                <Text style={styles.sectionTitle}>Recent Transactions</Text>
+                {summaryData.transactions.map((transaction, index) => {
+                  console.log('[BillingScreen] Transaction object:', transaction);
+                  return (
+                  <View key={`${transaction.bookingId}-${index}`} style={styles.receiptCard}>
+                    <View style={styles.receiptHeader}>
+                      <Text style={styles.receiptVehicle}>{transaction.vehicleNumber}</Text>
+                      <Text style={styles.receiptTime}>
+                        {new Date(transaction.printedAt).toLocaleTimeString('en-IN', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </Text>
+                    </View>
+                    <View style={styles.receiptDetails}>
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptLabel}>Amount:</Text>
+                        <Text style={styles.receiptAmount}>₹{(transaction.originalAmount || 0).toFixed(2)}</Text>
+                      </View>
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptLabel}>Settlement:</Text>
+                        <Text style={[styles.receiptAmount, transaction.wasOverridden && styles.receiptSettlement]}>
+                          ₹{(transaction.amount || 0).toFixed(2)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  );
+                })}
+              </View>
+            )}
+          </ScrollView>
+        )
       )}
     </LinearGradient>
   );
@@ -1127,5 +1480,246 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: verticalScale(8),
     textAlign: 'center',
+  },
+  settlementDialogOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settlementDialogContainer: {
+    backgroundColor: COLORS.white,
+    borderRadius: moderateScale(16),
+    padding: getResponsiveSpacing(24),
+    width: '85%',
+    maxWidth: moderateScale(400),
+    ...SHADOWS.large,
+  },
+  settlementDialogTitle: {
+    fontSize: getResponsiveFontSize(22),
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: verticalScale(20),
+    textAlign: 'center',
+  },
+  calculatingContainer: {
+    alignItems: 'center',
+    paddingVertical: verticalScale(40),
+  },
+  calculatingText: {
+    fontSize: getResponsiveFontSize(16),
+    color: COLORS.textSecondary,
+    marginTop: verticalScale(12),
+  },
+  amountDisplayContainer: {
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: moderateScale(12),
+    padding: getResponsiveSpacing(16),
+    marginBottom: verticalScale(20),
+    alignItems: 'center',
+  },
+  amountLabel: {
+    fontSize: getResponsiveFontSize(14),
+    color: COLORS.textSecondary,
+    marginBottom: verticalScale(8),
+  },
+  amountDisplay: {
+    fontSize: getResponsiveFontSize(32),
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  inputContainer: {
+    marginBottom: verticalScale(24),
+  },
+  inputLabel: {
+    fontSize: getResponsiveFontSize(14),
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginBottom: verticalScale(8),
+  },
+  settlementInput: {
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: getResponsiveSpacing(16),
+    paddingVertical: verticalScale(12),
+    fontSize: getResponsiveFontSize(18),
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  dialogButtonsRow: {
+    flexDirection: 'row',
+    gap: moderateScale(12),
+  },
+  dialogCancelButton: {
+    flex: 1,
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: moderateScale(12),
+    paddingVertical: verticalScale(14),
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  dialogCancelButtonText: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  dialogPrintButton: {
+    flex: 1,
+    backgroundColor: '#EF4444',
+    borderRadius: moderateScale(12),
+    paddingVertical: verticalScale(14),
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: moderateScale(8),
+  },
+  dialogPrintButtonDisabled: {
+    opacity: 0.6,
+  },
+  dialogPrintIcon: {
+    fontSize: getResponsiveFontSize(18),
+  },
+  dialogPrintButtonText: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.white,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingHorizontal: getResponsiveSpacing(16),
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: verticalScale(14),
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: COLORS.gradientEnd,
+  },
+  tabText: {
+    fontSize: getResponsiveFontSize(15),
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  activeTabText: {
+    color: COLORS.gradientEnd,
+  },
+  emptySubtext: {
+    fontSize: getResponsiveFontSize(14),
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginTop: verticalScale(8),
+  },
+  summaryContainer: {
+    flex: 1,
+  },
+  summaryContent: {
+    padding: getResponsiveSpacing(16),
+  },
+  summaryHeader: {
+    marginBottom: verticalScale(24),
+    alignItems: 'center',
+  },
+  summaryTitle: {
+    fontSize: getResponsiveFontSize(24),
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: verticalScale(8),
+  },
+  summaryDate: {
+    fontSize: getResponsiveFontSize(14),
+    color: COLORS.textSecondary,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: moderateScale(12),
+    marginBottom: verticalScale(24),
+  },
+  statCard: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: COLORS.white,
+    borderRadius: moderateScale(16),
+    padding: getResponsiveSpacing(16),
+    alignItems: 'center',
+    ...SHADOWS.medium,
+  },
+  statIcon: {
+    fontSize: getResponsiveFontSize(32),
+    marginBottom: verticalScale(8),
+  },
+  statValue: {
+    fontSize: getResponsiveFontSize(24),
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: verticalScale(4),
+  },
+  statLabel: {
+    fontSize: getResponsiveFontSize(12),
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  receiptsSection: {
+    marginTop: verticalScale(8),
+  },
+  sectionTitle: {
+    fontSize: getResponsiveFontSize(18),
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: verticalScale(12),
+  },
+  receiptCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: moderateScale(12),
+    padding: getResponsiveSpacing(16),
+    marginBottom: verticalScale(12),
+    ...SHADOWS.small,
+  },
+  receiptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: verticalScale(12),
+    paddingBottom: verticalScale(12),
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  receiptVehicle: {
+    fontSize: getResponsiveFontSize(16),
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  receiptTime: {
+    fontSize: getResponsiveFontSize(12),
+    color: COLORS.textSecondary,
+  },
+  receiptDetails: {
+    gap: verticalScale(8),
+  },
+  receiptRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  receiptLabel: {
+    fontSize: getResponsiveFontSize(14),
+    color: COLORS.textSecondary,
+  },
+  receiptAmount: {
+    fontSize: getResponsiveFontSize(14),
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  receiptSettlement: {
+    color: '#10B981',
   },
 });

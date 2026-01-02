@@ -50,6 +50,7 @@ export type PickupJobResponse = {
   requestedAt: string;
   assignedAt: string;
   assignedDriverId: string;
+  phoneNumber?: string;
 };
 
 export type RespondToPickupResponse = {
@@ -81,4 +82,52 @@ export async function updatePickupStatus(payload: {
 
 export async function getPickupJobDetails(jobId: string) {
   return apiGet<unknown>(`/api/driver/pickup-requests/${jobId}`, true);
+}
+
+export type CurrentPickupResponse = {
+  success: boolean;
+  pickupJob: PickupJobResponse | null;
+};
+
+export async function getCurrentPickupJob(): Promise<CurrentPickupResponse> {
+  try {
+    return await apiGet<CurrentPickupResponse>(
+      '/api/driver/pickup-requests/current',
+      true,
+    );
+  } catch (error: any) {
+    // 404 is a normal case - no active pickup job found
+    if (error?.status === 404) {
+      return {
+        success: true,
+        pickupJob: null,
+      };
+    }
+    // For other errors, rethrow
+    throw error;
+  }
+}
+
+export type InProgressBookingResponse = {
+  success: boolean;
+  booking: any | null;
+};
+
+export async function getInProgressBooking(): Promise<InProgressBookingResponse> {
+  try {
+    return await apiGet<InProgressBookingResponse>(
+      '/api/driver/pickup-requests/in-progress-booking',
+      true,
+    );
+  } catch (error: any) {
+    // 404 is a normal case - no in-progress booking found
+    if (error?.status === 404) {
+      return {
+        success: true,
+        booking: null,
+      };
+    }
+    // For other errors, rethrow
+    throw error;
+  }
 }

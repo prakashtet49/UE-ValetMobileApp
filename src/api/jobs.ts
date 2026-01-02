@@ -78,6 +78,7 @@ export type CompletedJob = {
   slotOrZone: string;
   locationDescription: string;
   duration: string;
+  receiptPrinted: boolean;
 };
 
 export type CompletedJobsResponse = {
@@ -88,7 +89,7 @@ export type CompletedJobsResponse = {
 
 export async function getCompletedJobs(limit = 50, offset = 0) {
   return apiGet<CompletedJobsResponse>(
-    `/api/v1/jobs/completed?limit=${limit}&offset=${offset}`,
+    `/api/v1/jobs/completed-all?limit=${limit}&offset=${offset}`,
     true,
   );
 }

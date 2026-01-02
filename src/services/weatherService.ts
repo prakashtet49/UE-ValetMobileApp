@@ -94,8 +94,11 @@ function parseWeatherCondition(description: string): string {
  */
 export async function fetchWeatherData(): Promise<WeatherData> {
   try {
-    // Get device GPS coordinates
-    const coords = await getDeviceLocation();
+    // Get device GPS coordinates with timeout
+    const coords = await Promise.race([
+      getDeviceLocation(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
+    ]);
     
     let locationQuery: string;
     if (coords) {
@@ -108,34 +111,50 @@ export async function fetchWeatherData(): Promise<WeatherData> {
       console.log('[Weather] GPS unavailable, using fallback location:', locationQuery);
     }
 
-    // Fetch weather data from wttr.in in JSON format
+    // Fetch weather data from wttr.in in JSON format with timeout
     const url = `${WEATHER_API_BASE}/${encodeURIComponent(locationQuery)}?format=j1`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'User-Agent': 'UrbanEaseValet/1.0',
       },
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`Weather API error: ${response.status}`);
+      throw new Error(`Weather API returned status ${response.status}`);
     }
 
     const data = await response.json();
     console.log('[Weather] API response received');
 
+    // Validate response structure
+    if (!data.current_condition || !data.current_condition[0]) {
+      throw new Error('Invalid weather data structure');
+    }
+
     const currentCondition = data.current_condition[0];
     const weatherData: WeatherData = {
       temp: Math.round(parseFloat(currentCondition.temp_C)),
       condition: parseWeatherCondition(currentCondition.weatherDesc[0].value),
-      location: data.nearest_area[0].areaName[0].value || 'Unknown',
+      location: data.nearest_area?.[0]?.areaName?.[0]?.value || 'Unknown',
     };
 
     console.log('[Weather] Parsed data:', weatherData);
     return weatherData;
   } catch (error: any) {
-    console.error('[Weather] Error fetching weather:', error);
-    throw new Error(error.message || 'Unable to fetch weather data');
+    // Suppress error logging for common issues
+    if (error.name === 'AbortError') {
+      console.log('[Weather] Request timeout - using fallback data');
+    } else {
+      console.log('[Weather] Failed to fetch weather - using fallback data');
+    }
+    throw new Error('Weather service unavailable');
   }
 }
 

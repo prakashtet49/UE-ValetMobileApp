@@ -8,11 +8,14 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
 import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import type {AppStackParamList} from '../navigation/AppNavigator';
+import {stampImageWithWatermarkAndTimestamp} from '../utils/imageStamp';
+import ImagePreviewModal from '../components/ImagePreviewModal';
 
 // Generic incident report that can be opened from parking or pickup flows.
 // It currently just logs the payload; backend wiring can be added once the API is final.
@@ -31,6 +34,10 @@ export default function IncidentReportScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<{visible: boolean; uri: string | null}>({
+    visible: false,
+    uri: null,
+  });
 
   const pickImage = async (source: 'camera' | 'library') => {
     try {
@@ -43,8 +50,9 @@ export default function IncidentReportScreen() {
       if (!asset.uri) {
         return;
       }
-      console.log('[IncidentReport] Selected photo', {uri: asset.uri});
-      setPhotoUri(asset.uri);
+      const stampedUri = await stampImageWithWatermarkAndTimestamp(asset.uri);
+      console.log('[IncidentReport] Selected photo', {uri: stampedUri});
+      setPhotoUri(stampedUri);
     } catch (e) {
       console.error('[IncidentReport] Failed to select photo', e);
     }
@@ -129,6 +137,25 @@ export default function IncidentReportScreen() {
         />
 
         <Text style={styles.label}>Photo (optional)</Text>
+        <View style={styles.photoThumbnailContainer}>
+          {photoUri ? (
+            <TouchableOpacity
+              style={styles.photoThumbnail}
+              onPress={() => setPreviewImage({visible: true, uri: photoUri})}>
+              <Image source={{uri: photoUri}} style={styles.photoThumbnailImage} />
+              <TouchableOpacity
+                style={styles.cancelIcon}
+                onPress={() => setPhotoUri(null)}
+                activeOpacity={0.7}>
+                <Text style={styles.cancelIconText}>✕</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.photoEmpty}>
+              <Text style={styles.photoEmptyIcon}>📷</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.photoRow}>
           <TouchableOpacity
             style={styles.photoButton}
@@ -141,11 +168,6 @@ export default function IncidentReportScreen() {
             <Text style={styles.photoButtonSecondaryText}>Gallery</Text>
           </TouchableOpacity>
         </View>
-        {photoUri ? (
-          <Text style={styles.photoStatusText}>Photo attached</Text>
-        ) : (
-          <Text style={styles.photoStatusTextMuted}>No photo</Text>
-        )}
 
         <TouchableOpacity
           style={styles.primaryButton}
@@ -165,6 +187,13 @@ export default function IncidentReportScreen() {
           <Text style={styles.secondaryButtonText}>Back</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <ImagePreviewModal
+        visible={previewImage.visible}
+        imageUri={previewImage.uri}
+        onClose={() => setPreviewImage({visible: false, uri: null})}
+        onRecapture={() => pickImage('camera')}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -295,6 +324,55 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontSize: 11,
     color: '#6b7280',
+  },
+  photoThumbnailContainer: {
+    marginBottom: 8,
+  },
+  photoThumbnail: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 8,
+    overflow: 'visible',
+    position: 'relative',
+  },
+  photoThumbnailImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  cancelIcon: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  cancelIconText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  photoEmpty: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 8,
+    backgroundColor: '#1f2937',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  photoEmptyIcon: {
+    fontSize: 32,
   },
   primaryButton: {
     height: 48,

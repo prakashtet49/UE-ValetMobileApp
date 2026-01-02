@@ -78,6 +78,17 @@ function App() {
       const unsubscribeForeground = messaging().onMessage(async remoteMessage => {
         try {
           console.log('[FCM] Foreground message received', remoteMessage);
+          
+          // Display local notification with custom sound and icon
+          if (remoteMessage.notification) {
+            const {displayNotification} = require('./src/services/notificationService');
+            await displayNotification(
+              remoteMessage.notification.title || 'Notification',
+              remoteMessage.notification.body || '',
+              remoteMessage.data
+            );
+          }
+          
           const data = remoteMessage.data || {};
           if (data && data.type === 'NEW_JOB') {
             if (data.jobId && data.vehicleNumber) {

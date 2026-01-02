@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -19,11 +19,14 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {launchCamera} from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
 import {startParking, uploadParkingPhotos, completeParking, startManualBooking} from '../api/parking';
+import {getInProgressBooking} from '../api/pickup';
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import BackButton from '../components/BackButton';
 import GradientButton from '../components/GradientButton';
 import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
+import {stampImageWithWatermarkAndTimestamp} from '../utils/imageStamp';
+import ImagePreviewModal from '../components/ImagePreviewModal';
 
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
 const arrowRightIcon = require('../assets/icons/arrow-right.png');
@@ -43,7 +46,7 @@ export default function StartParkingScreen() {
   const [parkingJobId, setParkingJobId] = useState<string | null>(null);
   const [locationName, setLocationName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [isManualPark, setIsManualPark] = useState(false);
+  const [isManualPark, setIsManualPark] = useState(true);
   const [customerMobile, setCustomerMobile] = useState('');
   const [submittingManual, setSubmittingManual] = useState(false);
   const [dialog, setDialog] = useState<{
@@ -57,6 +60,73 @@ export default function StartParkingScreen() {
     message: '',
     buttons: [],
   });
+  const [previewImage, setPreviewImage] = useState<{visible: boolean; uri: string | null; index: number | null}>({
+    visible: false,
+    uri: null,
+    index: null,
+  });
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [inProgressBooking, setInProgressBooking] = useState<any>(null);
+
+  // Fetch in-progress booking on mount
+  useEffect(() => {
+    const fetchInProgressBooking = async () => {
+      try {
+        console.log('[StartParkingScreen] Fetching in-progress booking...');
+        const response = await getInProgressBooking();
+        console.log('[StartParkingScreen] In-progress booking response:', response);
+        
+        if (response.success && response.booking) {
+          setInProgressBooking(response.booking);
+          console.log('[StartParkingScreen] Found in-progress booking:', response.booking);
+          
+          // Pre-fill form fields from in-progress booking
+          if (response.booking.keyTagCode) {
+            // Remove UE prefix if present
+            const keyTag = response.booking.keyTagCode.replace(/^UE/i, '');
+            setKeyTagCode(keyTag);
+            setKeyTagVerified(true); // Mark as verified since it's from backend
+            console.log('[StartParkingScreen] Pre-filled keyTagCode (trimmed):', keyTag);
+          }
+          
+          if (response.booking.customerPhone) {
+            // Remove +91 prefix if present
+            const phoneNumber = response.booking.customerPhone.replace(/^\+91/, '');
+            setCustomerMobile(phoneNumber);
+            console.log('[StartParkingScreen] Pre-filled customerPhone (trimmed):', phoneNumber);
+          }
+          
+          if (response.booking.parkingJobId) {
+            setParkingJobId(response.booking.parkingJobId);
+            console.log('[StartParkingScreen] Set parkingJobId:', response.booking.parkingJobId);
+          }
+          
+          if (response.booking.vehicleNumber) {
+            setVehicleNumber(response.booking.vehicleNumber);
+            console.log('[StartParkingScreen] Pre-filled vehicleNumber:', response.booking.vehicleNumber);
+          }
+          
+          if (response.booking.slotNumber) {
+            setSlotNumber(response.booking.slotNumber);
+            console.log('[StartParkingScreen] Pre-filled slotNumber:', response.booking.slotNumber);
+          }
+          
+          if (response.booking.locationDescription) {
+            setRemarks(response.booking.locationDescription);
+            console.log('[StartParkingScreen] Pre-filled locationDescription:', response.booking.locationDescription);
+          }
+        } else {
+          console.log('[StartParkingScreen] No in-progress booking found');
+        }
+      } catch (error) {
+        console.error('[StartParkingScreen] Failed to fetch in-progress booking:', error);
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+
+    fetchInProgressBooking();
+  }, []);
 
   const requestCameraPermission = async () => {
     if (Platform.OS === 'android') {
@@ -141,9 +211,13 @@ export default function StartParkingScreen() {
 
       if (result.assets && result.assets[0]) {
         const asset = result.assets[0];
+        const originalUri = asset.uri || '';
+        const stampedUri = originalUri
+          ? await stampImageWithWatermarkAndTimestamp(originalUri)
+          : '';
         const newPhotos = [...photos];
         newPhotos[index] = {
-          uri: asset.uri || '',
+          uri: stampedUri,
           name: asset.fileName || `photo_${index}.jpg`,
           type: asset.type || 'image/jpeg',
         };
@@ -317,6 +391,24 @@ export default function StartParkingScreen() {
     }
   };
 
+  // Show loading screen while fetching in-progress booking
+  if (initialLoading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <BackButton color="#1f2937" useIcon={true} />
+          <View style={styles.headerLogoContainer}>
+            <Image source={urbaneaseLogo} style={styles.headerLogo} />
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.gradientEnd} />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -483,30 +575,49 @@ export default function StartParkingScreen() {
           {/* Photo Cards */}
           <View style={styles.photoPreviewContainer}>
             {photos.map((photo, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.photoPlaceholder}
-                onPress={() => handleTakePhoto(index)}
-                disabled={!keyTagVerified}>
-                {photo ? (
-                  <Image
-                    source={{uri: photo.uri}}
-                    style={styles.photoPreview}
-                  />
-                ) : (
-                  <View style={styles.photoEmpty}>
-                    <Text style={styles.photoEmptyIcon}>📷</Text>
-                    <Text style={styles.photoEmptyText}>
-                      {index === 0 ? 'Image 1' : index === 1 ? 'Image 2' : 'Image 3'}
-                    </Text>
-                  </View>
+              <View key={index} style={styles.photoPlaceholder}>
+                <TouchableOpacity
+                  style={styles.photoTouchable}
+                  onPress={() => {
+                    if (photo) {
+                      setPreviewImage({visible: true, uri: photo.uri, index});
+                    } else {
+                      handleTakePhoto(index);
+                    }
+                  }}
+                  disabled={!keyTagVerified}>
+                  {photo ? (
+                    <Image
+                      source={{uri: photo.uri}}
+                      style={styles.photoPreview}
+                    />
+                  ) : (
+                    <View style={styles.photoEmpty}>
+                      <Text style={styles.photoEmptyIcon}>📷</Text>
+                      <Text style={styles.photoEmptyText}>
+                        {index === 0 ? 'Image 1' : index === 1 ? 'Image 2' : 'Image 3'}
+                      </Text>
+                    </View>
+                  )}
+                  {uploadingPhotos && photo && (
+                    <View style={styles.uploadingOverlay}>
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {photo && (
+                  <TouchableOpacity
+                    style={styles.cancelIcon}
+                    onPress={() => {
+                      const newPhotos = [...photos];
+                      newPhotos[index] = null;
+                      setPhotos(newPhotos);
+                    }}
+                    activeOpacity={0.7}>
+                    <Text style={styles.cancelIconText}>✕</Text>
+                  </TouchableOpacity>
                 )}
-                {uploadingPhotos && photo && (
-                  <View style={styles.uploadingOverlay}>
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  </View>
-                )}
-              </TouchableOpacity>
+              </View>
             ))}
           </View>
 
@@ -543,6 +654,18 @@ export default function StartParkingScreen() {
         message={dialog.message}
         buttons={dialog.buttons}
         onDismiss={() => setDialog({...dialog, visible: false})}
+      />
+
+      {/* Image Preview Modal */}
+      <ImagePreviewModal
+        visible={previewImage.visible}
+        imageUri={previewImage.uri}
+        onClose={() => setPreviewImage({visible: false, uri: null, index: null})}
+        onRecapture={() => {
+          if (previewImage.index !== null) {
+            handleTakePhoto(previewImage.index);
+          }
+        }}
       />
     </View>
   );
@@ -687,13 +810,40 @@ const styles = StyleSheet.create({
     flex: 1,
     aspectRatio: 1,
     borderRadius: moderateScale(16),
-    overflow: 'hidden',
+    overflow: 'visible',
     backgroundColor: COLORS.border,
     ...SHADOWS.small,
+  },
+  photoTouchable: {
+    width: '100%',
+    height: '100%',
+    borderRadius: moderateScale(16),
+    overflow: 'hidden',
   },
   photoPreview: {
     width: '100%',
     height: '100%',
+  },
+  cancelIcon: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  cancelIconText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   photoEmpty: {
     width: '100%',
@@ -730,5 +880,15 @@ const styles = StyleSheet.create({
   },
   submitArrowDisabled: {
     opacity: 0.5,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: COLORS.textSecondary,
+    fontSize: 16,
   },
 });

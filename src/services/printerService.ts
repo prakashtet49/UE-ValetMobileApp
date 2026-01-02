@@ -22,6 +22,7 @@ export type PrinterDevice = {
  */
 class PrinterService {
   private connectedDeviceInfo: PrinterDevice | null = null;
+  private isConnecting: boolean = false;
 
   /**
    * Request Bluetooth permissions
@@ -130,7 +131,14 @@ class PrinterService {
    * Connect to a specific Bluetooth printer
    */
   async connectToPrinter(device: PrinterDevice): Promise<boolean> {
+    // Prevent multiple simultaneous connection attempts
+    if (this.isConnecting) {
+      console.log('[PrinterService] Connection already in progress, skipping');
+      return false;
+    }
+    
     console.log('[PrinterService] Connecting to printer:', device.name);
+    this.isConnecting = true;
     
     try {
       if (Platform.OS !== 'android') {
@@ -151,9 +159,16 @@ class PrinterService {
       
       console.log('[PrinterService] Connected to printer:', device.name);
       return true;
-    } catch (error) {
-      logError('PrinterService.connectToPrinter', error);
+    } catch (error: any) {
+      // Only log unexpected errors, not Bluetooth disabled or connection failures
+      if (error?.code !== 'BLUETOOTH_DISABLED' && error?.code !== 'CONNECTION_FAILED') {
+        logError('PrinterService.connectToPrinter', error);
+      } else {
+        console.log('[PrinterService] Connection attempt failed:', error?.code || 'Bluetooth unavailable');
+      }
       throw error;
+    } finally {
+      this.isConnecting = false;
     }
   }
 
@@ -243,9 +258,13 @@ class PrinterService {
       }
       
       return connected;
-    } catch (error) {
-      logError('PrinterService.autoReconnect', error);
-      console.log('[PrinterService] Auto-reconnect failed with error');
+    } catch (error: any) {
+      // Only log unexpected errors, not Bluetooth disabled or connection failures
+      if (error?.code !== 'BLUETOOTH_DISABLED' && error?.code !== 'CONNECTION_FAILED') {
+        logError('PrinterService.autoReconnect', error);
+      } else {
+        console.log('[PrinterService] Auto-reconnect skipped:', error?.code || 'Bluetooth unavailable');
+      }
       return false;
     }
   }
@@ -302,20 +321,30 @@ class PrinterService {
       }
 
       if (!BluetoothManager || !BluetoothManager.isConnected) {
+        // If native module not available, trust our internal state
         return this.connectedDeviceInfo !== null;
       }
 
       const connected = await BluetoothManager.isConnected();
       
-      // Update local state if disconnected
-      if (!connected) {
+      // Only clear state if we get a definitive "not connected" response
+      if (!connected && this.connectedDeviceInfo !== null) {
+        console.log('[PrinterService] Connection lost, clearing state');
         this.connectedDeviceInfo = null;
+        await this.clearSavedPrinter();
       }
       
       return connected;
-    } catch (error) {
-      logError('PrinterService.checkConnection', error);
-      return false;
+    } catch (error: any) {
+      // Don't clear state on errors - Bluetooth might be temporarily unavailable
+      // Only log unexpected errors
+      if (error?.code !== 'BLUETOOTH_DISABLED' && error?.code !== 'CONNECTION_FAILED') {
+        console.log('[PrinterService] Connection check error:', error?.message || 'Unknown error');
+      }
+      
+      // On error, trust our internal state instead of assuming disconnected
+      // This prevents false disconnections due to temporary Bluetooth issues
+      return this.connectedDeviceInfo !== null;
     }
   }
 }

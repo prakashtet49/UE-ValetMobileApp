@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/patch-react-native-image-marker.js",
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "lint": "eslint .",
@@ -23,6 +24,9 @@
     "buffer": "^6.0.3",
     "react": "19.1.1",
     "react-native": "0.82.1",
+    "react-native-config": "^1.6.1",
+    "react-native-gesture-handler": "^2.30.0",
+    "react-native-image-marker": "^1.2.9",
     "react-native-image-picker": "^8.2.1",
     "react-native-linear-gradient": "^2.8.3",
     "react-native-safe-area-context": "^5.5.2",
