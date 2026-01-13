@@ -37,7 +37,7 @@ This document maps the swagger.json specification to the implemented API functio
 - ✅ `GET /api/driver/parking/pending` → `getPendingParking()`
 - ✅ `GET /api/driver/parking/pending/{bookingId}` → `getPendingParkingById()`
 - ✅ `POST /api/driver/parking/start` → `startParking()`
-- ✅ `POST /api/driver/parking/upload-photos` → `uploadParkingPhotos()`
+- ✅ `POST /api/driver/parking/upload-media` → `uploadParkingPhotos()`
 - ✅ `POST /api/driver/parking/complete` → `completeParking()`
 - ✅ `POST /api/driver/parking/send-parking-confirmation` → `sendParkingConfirmationTemplate()`
 - ✅ `POST /api/driver/parking/vehicle-arrived` → `markVehicleArrived()`

@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useState, useCallback} from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -13,6 +13,7 @@ import {
   PanResponder,
   Linking,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../utils/responsive';
 import {useNavigation, useFocusEffect, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -20,8 +21,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import {useAuth} from '../context/AuthContext';
 import {getTodayJobStats} from '../api/stats';
 import {getJobsStats} from '../api/jobs';
-import {pauseShift, startShift} from '../api/shifts';
-import {getPendingPickupRequests, getCurrentPickupJob} from '../api/pickup';
+import {pauseShift, startShift, getShiftStatus, startDriverShift, endDriverShift} from '../api/shifts';
+import {getPendingPickupRequests, getCurrentPickupJob, getInProgressBooking} from '../api/pickup';
 import {markVehicleArrived, markVehicleHandedOver} from '../api/parking';
 import {getClientLocations, assignLocation, type Location} from '../api/driver';
 import type {AppStackParamList} from '../navigation/AppNavigator';
@@ -29,7 +30,6 @@ import GradientButton from '../components/GradientButton';
 import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {useValetRealtime} from '../hooks/useValetRealtime';
-import {fetchWeatherData, getFallbackWeather, type WeatherData} from '../services/weatherService';
 import {testNotification} from '../services/notificationService';
 
 const parkIcon = require('../assets/icons/park_icon.png');
@@ -70,6 +70,7 @@ export default function HomeScreen() {
   const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
   const [jobsOverview, setJobsOverview] = useState<JobsOverview | null>(null);
   const [pendingPickups, setPendingPickups] = useState<PendingPickupsData>({count: 0});
+  const [inProgressCount, setInProgressCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [shiftStatus, setShiftStatus] = useState<'offline' | 'active' | 'paused'>(
@@ -81,6 +82,10 @@ export default function HomeScreen() {
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [changingLocation, setChangingLocation] = useState(false);
+  const [togglingShift, setTogglingShift] = useState(false);
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarAnimation] = useState(new Animated.Value(0));
   const [dialog, setDialog] = useState<{
     visible: boolean;
     title: string;
@@ -96,11 +101,6 @@ export default function HomeScreen() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const screenHeight = Dimensions.get('window').height;
   const [parkButtonScale] = useState(new Animated.Value(1));
-  const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [weatherError, setWeatherError] = useState<string | null>(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
-  const [lastWeatherFetch, setLastWeatherFetch] = useState<number>(0);
-  const [weatherRetryCount, setWeatherRetryCount] = useState<number>(0);
   
   // Floating shapes animation
   const [shape1] = useState(new Animated.ValueXY({x: 50, y: 100}));
@@ -112,34 +112,201 @@ export default function HomeScreen() {
   const [shape3Rotate] = useState(new Animated.Value(0));
   const [shape4Rotate] = useState(new Animated.Value(0));
 
+  // Helper functions to get user-specific storage keys
+  const getShiftStatusKey = (userId: string) => `shift_status_${userId}`;
+  const getShiftStartedAtKey = (userId: string) => `shift_started_at_${userId}`;
+  const getShiftUserIdKey = () => 'shift_user_id'; // Store current user ID to verify ownership
+
+  // Load shift status
+  async function loadShiftStatus() {
+    try {
+      console.log('[HomeScreen] Fetching shift status...');
+      
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) {
+        console.log('[HomeScreen] No user ID in session, loading from API only');
+        // No user ID, load from API only
+        const response = await getShiftStatus();
+        const actualStatus = response.hasActiveShift ? 'active' : 'offline';
+        setShiftStatus(actualStatus);
+        if (response.shift?.startedAt) {
+          setShiftStartedAt(response.shift.startedAt);
+        } else {
+          setShiftStartedAt(null);
+        }
+        return;
+      }
+
+      // Check if stored shift status belongs to current user
+      const storedUserId = await AsyncStorage.getItem(getShiftUserIdKey());
+      const savedStatus = await AsyncStorage.getItem(getShiftStatusKey(currentUserId));
+      const savedStartedAt = await AsyncStorage.getItem(getShiftStartedAtKey(currentUserId));
+      
+      // Only use cached status if it belongs to the current user
+      if (savedStatus && storedUserId === currentUserId) {
+        console.log('[HomeScreen] Restored shift status from storage for user:', currentUserId, savedStatus);
+        setShiftStatus(savedStatus as 'offline' | 'active' | 'paused');
+        if (savedStartedAt) {
+          setShiftStartedAt(savedStartedAt);
+        }
+      } else {
+        console.log('[HomeScreen] Stored shift status is for different user or missing, loading from API');
+        // Clear any old shift status that doesn't belong to current user
+        if (storedUserId && storedUserId !== currentUserId) {
+          const oldUserId = storedUserId;
+          await AsyncStorage.removeItem(getShiftStatusKey(oldUserId));
+          await AsyncStorage.removeItem(getShiftStartedAtKey(oldUserId));
+        }
+      }
+      
+      // Then fetch from API to get the latest status
+      const response = await getShiftStatus();
+      console.log('[HomeScreen] Shift status response:', response);
+      console.log('[HomeScreen] hasActiveShift:', response.hasActiveShift);
+      
+      // Determine status based on hasActiveShift flag
+      const actualStatus = response.hasActiveShift ? 'active' : 'offline';
+      console.log('[HomeScreen] Setting status to:', actualStatus);
+      setShiftStatus(actualStatus);
+      
+      // Save to AsyncStorage with user-specific keys
+      await AsyncStorage.setItem(getShiftStatusKey(currentUserId), actualStatus);
+      await AsyncStorage.setItem(getShiftUserIdKey(), currentUserId); // Store current user ID
+      
+      if (response.shift?.startedAt) {
+        setShiftStartedAt(response.shift.startedAt);
+        await AsyncStorage.setItem(getShiftStartedAtKey(currentUserId), response.shift.startedAt);
+      } else {
+        await AsyncStorage.removeItem(getShiftStartedAtKey(currentUserId));
+        setShiftStartedAt(null);
+      }
+    } catch (error) {
+      console.error('[HomeScreen] Failed to load shift status:', error);
+      // Keep the saved status if API fails, but only if it's for current user
+      const currentUserId = session?.user?.id;
+      if (currentUserId) {
+        const storedUserId = await AsyncStorage.getItem(getShiftUserIdKey());
+        if (storedUserId === currentUserId) {
+          const savedStatus = await AsyncStorage.getItem(getShiftStatusKey(currentUserId));
+          if (savedStatus) {
+            setShiftStatus(savedStatus as 'offline' | 'active' | 'paused');
+            return;
+          }
+        }
+      }
+      setShiftStatus('offline');
+    }
+  }
+
   // Load dashboard data via REST API
   // Used for: Initial load on mount, Manual refresh (pull-to-refresh)
   // Note: Real-time updates are handled by WebSocket (useValetRealtime hook)
   async function loadDashboard() {
     try {
       setLoading(true);
-      const [today, jobs, pickups] = await Promise.all([
+      const [today, jobs, pickups, inProgress] = await Promise.all([
         getTodayJobStats(),
         getJobsStats(),
         getPendingPickupRequests(),
+        getInProgressBooking(),
+        loadShiftStatus(),
       ]);
       setTodayStats(today);
       setJobsOverview(jobs);
       setPendingPickups({count: pickups.count});
+      // Set in-progress count: length of bookings array (0 if empty or null)
+      let count = 0;
+      if (inProgress && inProgress.success) {
+        // Check for "bookings" (plural) first - current API format
+        if ((inProgress as any).bookings && Array.isArray((inProgress as any).bookings)) {
+          count = (inProgress as any).bookings.length;
+        }
+        // Check for "booking" (singular) - backward compatibility
+        else if (Array.isArray(inProgress.booking)) {
+          count = inProgress.booking.length;
+        } else if (inProgress.booking && typeof inProgress.booking === 'object') {
+          // Handle single booking object (backward compatibility)
+          count = 1;
+        }
+      }
+      console.log('[HomeScreen] InProgress response:', JSON.stringify(inProgress, null, 2));
+      console.log('[HomeScreen] InProgress count calculated:', count);
+      setInProgressCount(count);
     } catch (error) {
-      console.error('Failed to load dashboard stats', error);
+      console.error('[HomeScreen] Failed to load dashboard stats', error);
+      // Set default values on error
+      setInProgressCount(0);
     } finally {
       setLoading(false);
     }
   }
 
+  // Lightweight function to refresh only InProgress count
+  // Used when returning from StartParkingScreen
+  const refreshInProgressCount = useCallback(async () => {
+    try {
+      console.log('[HomeScreen] Refreshing InProgress count...');
+      const inProgress = await getInProgressBooking();
+      let count = 0;
+      if (inProgress && inProgress.success) {
+        // Check for "bookings" (plural) first - current API format
+        if ((inProgress as any).bookings && Array.isArray((inProgress as any).bookings)) {
+          count = (inProgress as any).bookings.length;
+        }
+        // Check for "booking" (singular) - backward compatibility
+        else if (Array.isArray(inProgress.booking)) {
+          count = inProgress.booking.length;
+        } else if (inProgress.booking && typeof inProgress.booking === 'object') {
+          // Handle single booking object (backward compatibility)
+          count = 1;
+        }
+      }
+      console.log('[HomeScreen] InProgress response:', JSON.stringify(inProgress, null, 2));
+      console.log('[HomeScreen] InProgress count updated:', count);
+      setInProgressCount(count);
+    } catch (error) {
+      console.error('[HomeScreen] Failed to refresh InProgress count:', error);
+      setInProgressCount(0);
+    }
+  }, []);
+
   async function loadLocations() {
     try {
       const response = await getClientLocations();
       setLocations(response.locations);
-      // Set first location as default if available
-      if (response.locations.length > 0 && !selectedLocation) {
+      
+      // Try to restore previously selected location
+      const savedLocationId = await AsyncStorage.getItem('home_selected_location_id');
+      
+      if (savedLocationId && response.locations) {
+        const savedLocation = response.locations.find(loc => loc.id === savedLocationId);
+        if (savedLocation) {
+          console.log('[HomeScreen] Restored saved location:', savedLocation.name);
+          setSelectedLocation(savedLocation);
+          // Assign the saved location to backend to ensure data matches
+          try {
+            await assignLocation({locationId: savedLocation.id});
+            console.log('[HomeScreen] Assigned saved location to backend:', savedLocation.name);
+          } catch (error) {
+            console.error('[HomeScreen] Failed to assign saved location:', error);
+          }
+          return;
+        }
+      }
+      
+      // Only set first location if no saved location exists
+      if (response.locations.length > 0) {
+        console.log('[HomeScreen] No saved location, using first location');
         setSelectedLocation(response.locations[0]);
+        // Save the first location as default
+        await AsyncStorage.setItem('home_selected_location_id', response.locations[0].id);
+        // Assign the first location to backend
+        try {
+          await assignLocation({locationId: response.locations[0].id});
+          console.log('[HomeScreen] Assigned first location to backend:', response.locations[0].name);
+        } catch (error) {
+          console.error('[HomeScreen] Failed to assign first location:', error);
+        }
       }
     } catch (error) {
       console.error('Failed to load locations:', error);
@@ -166,6 +333,11 @@ export default function HomeScreen() {
       
       await assignLocation({locationId: location.id});
       setSelectedLocation(location);
+      
+      // Save selected location to AsyncStorage
+      await AsyncStorage.setItem('home_selected_location_id', location.id);
+      console.log('[HomeScreen] Saved location to storage:', location.name);
+      
       setShowLocationDropdown(false);
       
       // Refresh the entire screen to get latest data for the new location
@@ -313,7 +485,6 @@ export default function HomeScreen() {
   useEffect(() => {
     loadDashboard();
     loadLocations();
-    loadWeather();
     animateParkButton();
     animateFloatingShapes();
   }, []);
@@ -336,66 +507,6 @@ export default function HomeScreen() {
     ).start();
   };
 
-  // Load dynamic weather data with caching (30 minutes) and retry limit
-  const loadWeather = async (forceRefresh = false) => {
-    const now = Date.now();
-    const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
-    const MAX_RETRIES = 5;
-    
-    // Skip if we have recent data and not forcing refresh
-    if (!forceRefresh && weather && (now - lastWeatherFetch) < CACHE_DURATION) {
-      console.log('[HomeScreen] Using cached weather data');
-      return;
-    }
-    
-    // If force refresh, reset retry count
-    if (forceRefresh) {
-      setWeatherRetryCount(0);
-    }
-    
-    // Check if we've exceeded retry limit
-    if (weatherRetryCount >= MAX_RETRIES) {
-      console.log('[HomeScreen] Weather retry limit reached, showing error');
-      setWeatherError('Unable to load weather');
-      setWeatherLoading(false);
-      const fallbackData = getFallbackWeather();
-      setWeather(fallbackData);
-      return;
-    }
-    
-    setWeatherLoading(true);
-    setWeatherError(null);
-    
-    try {
-      const weatherData = await fetchWeatherData();
-      setWeather(weatherData);
-      setWeatherError(null);
-      setLastWeatherFetch(now);
-      setWeatherRetryCount(0); // Reset retry count on success
-      setWeatherLoading(false);
-      console.log('[HomeScreen] Weather data fetched and cached');
-    } catch (error: any) {
-      const newRetryCount = weatherRetryCount + 1;
-      setWeatherRetryCount(newRetryCount);
-      
-      console.log(`[HomeScreen] Weather fetch failed (attempt ${newRetryCount}/${MAX_RETRIES})`);
-      
-      // Use fallback weather data
-      const fallbackData = getFallbackWeather();
-      setWeather(fallbackData);
-      
-      // If we've reached max retries, show error and stop loading
-      if (newRetryCount >= MAX_RETRIES) {
-        setWeatherError('Unable to load weather');
-        setWeatherLoading(false);
-        setLastWeatherFetch(now);
-      } else {
-        // Keep loading spinner while retrying
-        // Auto-retry after a delay
-        setTimeout(() => loadWeather(false), 2000);
-      }
-    }
-  };
 
   // Animate floating shapes
   const animateFloatingShapes = () => {
@@ -517,6 +628,10 @@ export default function HomeScreen() {
   // Note: Dashboard data is updated via WebSocket real-time, no need to reload
   useFocusEffect(
     React.useCallback(() => {
+      // Refresh InProgress count when screen comes into focus
+      // This ensures count is updated when returning from StartParkingScreen
+      refreshInProgressCount();
+      
       // Check if there's an active pickup job passed via navigation
       console.log('[HomeScreen] useFocusEffect - route.params:', route.params);
       if (route.params?.activePickupJob) {
@@ -553,7 +668,7 @@ export default function HomeScreen() {
             });
         }
       }
-    }, [route.params?.activePickupJob, navigation, session?.user?.role])
+    }, [route.params?.activePickupJob, navigation, session?.user?.role, refreshInProgressCount])
   );
 
   const handlePickupAction = async () => {
@@ -628,6 +743,35 @@ export default function HomeScreen() {
     navigation.navigate('Profile');
   };
 
+  // Helper function to check if shift is active before allowing actions
+  const checkShiftAndProceed = (action: () => void) => {
+    if (shiftStatus !== 'active') {
+      setSnackbarMessage('Please start your shift first');
+      setSnackbarVisible(true);
+      
+      // Slide up animation
+      Animated.spring(snackbarAnimation, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 7,
+      }).start();
+      
+      // Auto hide after 3 seconds
+      setTimeout(() => {
+        Animated.timing(snackbarAnimation, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => {
+          setSnackbarVisible(false);
+        });
+      }, 3000);
+      return;
+    }
+    action();
+  };
+
   const onToggleOnline = async () => {
     try {
       if (shiftStatus === 'offline') {
@@ -665,31 +809,6 @@ export default function HomeScreen() {
     if (hour < 12) return 'Good Morning';
     if (hour < 17) return 'Good Afternoon';
     return 'Good Evening';
-  };
-  const getWeatherEmoji = () => {
-    if (!weather) return '☁️';
-    
-    // Check if it's nighttime (6 PM to 6 AM)
-    const currentHour = new Date().getHours();
-    const isNight = currentHour >= 18 || currentHour < 6;
-    
-    const condition = weather.condition.toLowerCase();
-    
-    // Handle rainy/stormy weather (same for day/night)
-    if (condition.includes('rain')) return '🌧️';
-    if (condition.includes('storm')) return '⛈️';
-    if (condition.includes('snow')) return '❄️';
-    
-    // Handle clear/sunny weather - show moon at night
-    if (condition.includes('clear') || condition.includes('sun')) {
-      return isNight ? '🌙' : '☀️';
-    }
-    
-    // Handle cloudy weather
-    if (condition.includes('cloud')) return '☁️';
-    
-    // Default: sun during day, moon at night
-    return isNight ? '🌙' : '🌤️';
   };
 
   const shape1RotateInterpolate = shape1Rotate.interpolate({
@@ -820,25 +939,94 @@ export default function HomeScreen() {
               )}
             </TouchableOpacity>
           </View>
-          {/* Weather Widget on Right */}
-          <View style={styles.weatherWidget}>
-            {weatherLoading ? (
-              <ActivityIndicator size="small" color={COLORS.gradientEnd} />
-            ) : weatherError ? (
-              <TouchableOpacity onPress={() => loadWeather(true)} style={styles.weatherErrorContainer}>
-                <Text style={styles.weatherErrorIcon}>⚠️</Text>
-                <Text style={styles.weatherErrorText}>Tap to retry</Text>
-              </TouchableOpacity>
-            ) : weather ? (
-              <>
-                <Text style={styles.weatherWidgetEmoji}>{getWeatherEmoji()}</Text>
-                <View>
-                  <Text style={styles.weatherWidgetTemp}>{weather.temp}°C</Text>
-                  <Text style={styles.weatherWidgetCondition}>{weather.condition}</Text>
-                </View>
-              </>
-            ) : null}
-          </View>
+          
+          {/* Shift Toggle */}
+          <TouchableOpacity 
+            style={styles.shiftToggleContainer}
+            onPress={async () => {
+              if (togglingShift) return;
+              
+              try {
+                setTogglingShift(true);
+                console.log('[HomeScreen] Toggling shift, current status:', shiftStatus);
+                
+                const currentUserId = session?.user?.id;
+                if (!currentUserId) {
+                  throw new Error('User ID not available');
+                }
+
+                if (shiftStatus === 'active') {
+                  // End shift
+                  console.log('[HomeScreen] Ending shift...');
+                  const response = await endDriverShift();
+                  console.log('[HomeScreen] End shift response:', JSON.stringify(response, null, 2));
+                  console.log('[HomeScreen] Response shift.status field:', response.shift.status);
+                  console.log('[HomeScreen] Setting shift status to:', response.shift.status);
+                  setShiftStatus(response.shift.status);
+                  console.log('[HomeScreen] Shift status updated');
+                  
+                  // Save to AsyncStorage with user-specific keys
+                  await AsyncStorage.setItem(getShiftStatusKey(currentUserId), response.shift.status);
+                  await AsyncStorage.setItem(getShiftUserIdKey(), currentUserId);
+                  await AsyncStorage.removeItem(getShiftStartedAtKey(currentUserId));
+                  
+                  setShiftStartedAt(null);
+                } else {
+                  // Start shift
+                  console.log('[HomeScreen] Starting shift...');
+                  const response = await startDriverShift();
+                  console.log('[HomeScreen] Start shift response:', JSON.stringify(response, null, 2));
+                  console.log('[HomeScreen] Response shift.status field:', response.shift.status);
+                  console.log('[HomeScreen] Setting shift status to:', response.shift.status);
+                  setShiftStatus(response.shift.status);
+                  console.log('[HomeScreen] Shift status updated');
+                  
+                  // Save to AsyncStorage with user-specific keys
+                  await AsyncStorage.setItem(getShiftStatusKey(currentUserId), response.shift.status);
+                  await AsyncStorage.setItem(getShiftUserIdKey(), currentUserId);
+                  
+                  if (response.shift?.started_at) {
+                    setShiftStartedAt(response.shift.started_at);
+                    await AsyncStorage.setItem(getShiftStartedAtKey(currentUserId), response.shift.started_at);
+                  }
+                }
+              } catch (error) {
+                console.error('[HomeScreen] Failed to toggle shift:', error);
+                setDialog({
+                  visible: true,
+                  title: 'Error',
+                  message: 'Failed to toggle shift. Please try again.',
+                  buttons: [{text: 'OK', style: 'default'}],
+                });
+              } finally {
+                setTogglingShift(false);
+              }
+            }}
+            activeOpacity={0.7}
+            disabled={togglingShift}>
+            <View style={[
+              styles.shiftToggle,
+              shiftStatus === 'active' && styles.shiftToggleActive
+            ]}>
+              <View style={[
+                styles.shiftToggleCircle,
+                shiftStatus === 'active' && styles.shiftToggleCircleActive
+              ]} />
+            </View>
+            {togglingShift ? (
+              <ActivityIndicator size="small" color={COLORS.gradientEnd} style={{marginLeft: moderateScale(8)}} />
+            ) : (
+              <View style={styles.shiftToggleTextContainer}>
+                <Text style={styles.shiftToggleLabel}>Shift</Text>
+                <Text style={[
+                  styles.shiftToggleStatus,
+                  shiftStatus === 'active' && styles.shiftToggleStatusActive
+                ]}>
+                  {shiftStatus === 'active' ? 'Begin' : 'End'}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
           {showLocationDropdown && locations.length > 0 && !changingLocation && (
             <View style={styles.locationDropdown}>
               {locations.map((location) => (
@@ -915,7 +1103,7 @@ export default function HomeScreen() {
             <View style={styles.infoCard}>
               <TouchableOpacity
                 style={styles.infoRow}
-                onPress={() => navigation.navigate('PendingPickups')}>
+                onPress={() => checkShiftAndProceed(() => navigation.navigate('PendingPickups'))}>
                 <View style={styles.infoIconContainer}>
                   <Text style={styles.infoIcon}>🚙</Text>
                 </View>
@@ -932,7 +1120,7 @@ export default function HomeScreen() {
               <View style={styles.infoDivider} />
               <TouchableOpacity
                 style={styles.infoRow}
-                onPress={() => navigation.navigate('ActiveJobs')}>
+                onPress={() => checkShiftAndProceed(() => navigation.navigate('ActiveJobs'))}>
                 <View style={styles.infoIconContainer}>
                   <Image source={activeJobsIcon} style={styles.infoIconImage} />
                 </View>
@@ -946,12 +1134,49 @@ export default function HomeScreen() {
                   </View>
                 )}
               </TouchableOpacity>
+              <View style={styles.infoDivider} />
+              
+              {/* In Progress Jobs */}
+              <TouchableOpacity
+                style={styles.infoRow}
+                onPress={() => checkShiftAndProceed(() => navigation.navigate('InProgressJobs'))}>
+                <View style={styles.infoIconContainer}>
+                  <Text style={styles.infoIcon}>⏳</Text>
+                </View>
+                <View style={styles.infoTextContainer}>
+                  <Text style={styles.infoLabel}>In Progress Jobs</Text>
+                  <Text style={styles.infoValue}>{inProgressCount}</Text>
+                </View>
+                {inProgressCount === 0 && (
+                  <View style={styles.emptyBadge}>
+                    <Text style={styles.emptyBadgeText}>✓ All Done</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              
+              {/* Generate Bills option - only for valet_billing role */}
+              {session?.user?.role === 'valet_billing' && (
+                <>
+                  <View style={styles.infoDivider} />
+                  <TouchableOpacity
+                    style={styles.infoRow}
+                    onPress={() => checkShiftAndProceed(() => navigation.navigate('GenerateBills'))}>
+                    <View style={styles.infoIconContainer}>
+                      <Text style={styles.infoIcon}>📄</Text>
+                    </View>
+                    <View style={styles.infoTextContainer}>
+                      <Text style={styles.infoLabel}>Generate Bills</Text>
+                      <Text style={styles.infoValue}>→</Text>
+                    </View>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
 
             {/* Large PARK button with animation */}
             <View style={styles.parkButtonContainer}>
               <TouchableOpacity
-                onPress={() => navigation.navigate('StartParking')}
+                onPress={() => checkShiftAndProceed(() => navigation.navigate('StartParking'))}
                 activeOpacity={0.8}>
                 <Animated.View style={{transform: [{scale: parkButtonScale}]}}>
                   <LinearGradient
@@ -1066,6 +1291,27 @@ export default function HomeScreen() {
         buttons={dialog.buttons}
         onDismiss={() => setDialog({...dialog, visible: false})}
       />
+
+      {/* Snackbar for shift warning */}
+      {snackbarVisible && (
+        <Animated.View 
+          style={[
+            styles.snackbar,
+            {
+              transform: [
+                {
+                  translateY: snackbarAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [100, 0],
+                  }),
+                },
+              ],
+              opacity: snackbarAnimation,
+            },
+          ]}>
+          <Text style={styles.snackbarText}>{snackbarMessage}</Text>
+        </Animated.View>
+      )}
     </LinearGradient>
   );
 }
@@ -1492,40 +1738,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
     zIndex: 1,
   },
-  weatherWidget: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-    borderRadius: moderateScale(12),
-    padding: getResponsiveSpacing(10),
-    gap: moderateScale(8),
-    ...SHADOWS.small,
-  },
-  weatherWidgetEmoji: {
-    fontSize: getResponsiveFontSize(28),
-  },
-  weatherWidgetTemp: {
-    fontSize: getResponsiveFontSize(16),
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  weatherWidgetCondition: {
-    fontSize: getResponsiveFontSize(11),
-    color: COLORS.textSecondary,
-  },
-  weatherErrorContainer: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: moderateScale(2),
-  },
-  weatherErrorIcon: {
-    fontSize: getResponsiveFontSize(20),
-  },
-  weatherErrorText: {
-    fontSize: getResponsiveFontSize(9),
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-  },
   summaryCard: {
     backgroundColor: '#E8F5E9',
     borderRadius: moderateScale(12),
@@ -1586,5 +1798,68 @@ const styles = StyleSheet.create({
     width: moderateScale(90),
     height: moderateScale(90),
     resizeMode: 'contain',
+  },
+  shiftToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: moderateScale(8),
+    minWidth: moderateScale(100),
+  },
+  shiftToggle: {
+    width: moderateScale(50),
+    height: moderateScale(28),
+    borderRadius: moderateScale(14),
+    backgroundColor: '#E5E7EB',
+    padding: moderateScale(2),
+    justifyContent: 'center',
+  },
+  shiftToggleActive: {
+    backgroundColor: '#10B981',
+  },
+  shiftToggleCircle: {
+    width: moderateScale(24),
+    height: moderateScale(24),
+    borderRadius: moderateScale(12),
+    backgroundColor: COLORS.white,
+    ...SHADOWS.small,
+  },
+  shiftToggleCircleActive: {
+    alignSelf: 'flex-end',
+  },
+  shiftToggleTextContainer: {
+    alignItems: 'flex-start',
+    minWidth: moderateScale(42),
+  },
+  shiftToggleLabel: {
+    fontSize: getResponsiveFontSize(11),
+    color: COLORS.textSecondary,
+    fontWeight: '500',
+  },
+  shiftToggleStatus: {
+    fontSize: getResponsiveFontSize(13),
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  shiftToggleStatusActive: {
+    color: '#10B981',
+  },
+  snackbar: {
+    position: 'absolute',
+    bottom: verticalScale(30),
+    left: getResponsiveSpacing(16),
+    right: getResponsiveSpacing(16),
+    backgroundColor: '#DC2626',
+    paddingHorizontal: getResponsiveSpacing(16),
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(12),
+    ...SHADOWS.large,
+    zIndex: 9999,
+    elevation: 10,
+  },
+  snackbarText: {
+    color: COLORS.white,
+    fontSize: getResponsiveFontSize(14),
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

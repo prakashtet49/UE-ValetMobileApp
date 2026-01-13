@@ -24,7 +24,8 @@ import HandoverConfirmationScreen from '../screens/HandoverConfirmationScreen';
 import IncidentReportScreen from '../screens/IncidentReportScreen';
 import PerformanceStatsScreen from '../screens/PerformanceStatsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import BillingScreen from '../screens/BillingScreen';
+import GenerateBillsScreen from '../screens/GenerateBillsScreen';
+import InProgressJobsScreen from '../screens/InProgressJobsScreen';
 
 export type AuthStackParamList = {
   Splash: undefined;
@@ -36,8 +37,9 @@ export type AuthStackParamList = {
 export type AppStackParamList = {
   Home: {activePickupJob?: any; checkoutSuccess?: boolean; bookingId?: string} | undefined;
   ActiveJobs: undefined;
+  InProgressJobs: undefined;
   PendingParking: undefined;
-  StartParking: undefined;
+  StartParking: {keyTagCode?: string; customerPhone?: string; source?: string} | undefined;
   ParkVehicle: {parkingJobId: string; keyTagCode: string};
   PendingPickups: undefined;
   PickupDetail: {pickupJobId: string};
@@ -60,17 +62,13 @@ export type AppStackParamList = {
     keyTagCode?: string | null;
   };
   PerformanceStats: undefined;
+  GenerateBills: undefined;
   Profile: undefined;
 };
 
-export type BillingStackParamList = {
-  Billing: undefined;
-  Profile: undefined;
-};
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
-const BillingStack = createNativeStackNavigator<BillingStackParamList>();
 
 function AuthStackNavigator() {
   return (
@@ -184,6 +182,14 @@ function AppStackNavigator() {
         component={PerformanceStatsScreen}
       />
       <AppStack.Screen
+        name="GenerateBills"
+        component={GenerateBillsScreen}
+      />
+      <AppStack.Screen
+        name="InProgressJobs"
+        component={InProgressJobsScreen}
+      />
+      <AppStack.Screen
         name="Profile"
         component={ProfileScreen}
       />
@@ -191,27 +197,6 @@ function AppStackNavigator() {
   );
 }
 
-function BillingStackNavigator() {
-  return (
-    <BillingStack.Navigator 
-      screenOptions={{
-        headerShown: false,
-        animation: 'slide_from_right',
-        animationDuration: 300,
-        gestureEnabled: true,
-        gestureDirection: 'horizontal',
-      }}>
-      <BillingStack.Screen
-        name="Billing"
-        component={BillingScreen}
-      />
-      <BillingStack.Screen
-        name="Profile"
-        component={ProfileScreen}
-      />
-    </BillingStack.Navigator>
-  );
-}
 
 export default function AppNavigator() {
   const {session, initializing} = useAuth();
@@ -227,17 +212,10 @@ export default function AppNavigator() {
     );
   }
 
-  // Determine which stack to show based on user role
+  // Determine which stack to show based on session
   const getUserStack = () => {
     if (!session) {
       return <AuthStackNavigator />;
-    }
-    
-    // Check user role from session
-    const userRole = session.user?.role;
-    
-    if (userRole === 'valet_billing') {
-      return <BillingStackNavigator />;
     }
     
     return <AppStackNavigator />;

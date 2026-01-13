@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -9,6 +9,7 @@ import {
   View,
   ActivityIndicator,
 } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {AuthStackParamList} from '../navigation/AppNavigator';
 import {sendOtp} from '../api/auth';
@@ -31,6 +32,8 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
   const [showPasswordField, setShowPasswordField] = useState(false);
   const [showOtpField, setShowOtpField] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [resendTimer, setResendTimer] = useState(0);
+  const [canResend, setCanResend] = useState(false);
   const [dialog, setDialog] = useState<{
     visible: boolean;
     title: string;
@@ -42,6 +45,22 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
     message: '',
     buttons: [],
   });
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer((prev) => {
+          if (prev <= 1) {
+            setCanResend(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [resendTimer]);
 
   const onContinueOtp = async () => {
     const trimmed = phone.trim();
@@ -56,11 +75,22 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
       return;
     }
     
-    if (trimmed.length < 10) {
+    if (trimmed.length !== 10) {
       setDialog({
         visible: true,
         title: 'Error',
-        message: 'Please enter a valid phone number',
+        message: 'Please enter a valid 10-digit phone number',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
+      return;
+    }
+    
+    // Validate that it contains only digits
+    if (!/^\d{10}$/.test(trimmed)) {
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Phone number should contain only digits',
         buttons: [{text: 'OK', style: 'default'}],
       });
       return;
@@ -81,21 +111,15 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
         // Normal OTP flow for other roles - show OTP field on same screen
         console.log('[LoginScreen] OTP sent, showing OTP field');
         setShowOtpField(true);
+        // Start resend timer (30 seconds)
+        setResendTimer(30);
+        setCanResend(false);
       }
     } catch (error: any) {
       console.error('[LoginScreen] sendOtp failed:', error);
       
-      let errorMessage = 'Failed to send OTP. Please try again.';
-      
-      if (error?.status === 500) {
-        errorMessage = 'Server error. Please try again later.';
-      } else if (error?.status === 404) {
-        errorMessage = 'Service not available. Please contact support.';
-      } else if (error?.message) {
-        errorMessage = error.message;
-      } else if (!error?.status) {
-        errorMessage = 'Network error. Please check your internet connection.';
-      }
+      // Use the actual error message from API
+      const errorMessage = error?.message || 'Failed to send OTP. Please try again.';
       
       setDialog({
         visible: true,
@@ -180,8 +204,37 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
     }
   };
 
-  const onTempToken = () => {
-    navigation.navigate('TemporaryAccess');
+  const onResendOtp = async () => {
+    if (!canResend || resendTimer > 0) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      console.log('[LoginScreen] Resending OTP to:', phone.trim());
+      await sendOtp({phone: phone.trim()});
+      
+      setDialog({
+        visible: true,
+        title: 'Success',
+        message: 'OTP has been resent to your phone number',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
+      
+      // Restart timer
+      setResendTimer(30);
+      setCanResend(false);
+    } catch (error: any) {
+      console.error('[LoginScreen] Resend OTP failed:', error);
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: error?.message || 'Failed to resend OTP. Please try again.',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -191,18 +244,32 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
       <View style={styles.inner}>
         <Text style={styles.title}>Driver Login</Text>
         <Text style={styles.subtitle}>
-          Login with your phone number or a temporary access token.
+          Login with your phone number to continue.
         </Text>
 
-        <TextInput
-          style={[styles.input, (showPasswordField || showOtpField) && styles.inputDisabled]}
-          placeholder="Phone number"
-          placeholderTextColor="#888"
-          keyboardType="phone-pad"
-          value={phone}
-          onChangeText={setPhone}
-          editable={!showPasswordField && !showOtpField}
-        />
+        <View style={styles.phoneInputContainer}>
+          <LinearGradient
+            colors={[COLORS.gradientStart, COLORS.gradientEnd]}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={styles.countryCodeContainer}>
+            <Text style={styles.countryCodeText}>+91</Text>
+          </LinearGradient>
+          <TextInput
+            style={[styles.phoneInput, (showPasswordField || showOtpField) && styles.inputDisabled]}
+            placeholder="Phone number"
+            placeholderTextColor="#888"
+            keyboardType="phone-pad"
+            maxLength={10}
+            value={phone}
+            onChangeText={(text) => {
+              // Only allow digits
+              const cleaned = text.replace(/[^0-9]/g, '');
+              setPhone(cleaned);
+            }}
+            editable={!showPasswordField && !showOtpField}
+          />
+        </View>
 
         {showOtpField && (
           <TextInput
@@ -230,18 +297,12 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
         )}
 
         {!showPasswordField && !showOtpField ? (
-          <>
-            <GradientButton
-              onPress={onContinueOtp}
-              disabled={submitting}
-              style={styles.primaryButton}>
-              {submitting ? 'Authenticating...' : 'Continue'}
-            </GradientButton>
-
-            <TouchableOpacity style={styles.secondaryButton} onPress={onTempToken}>
-              <Text style={styles.secondaryButtonText}>Login with Temporary Token</Text>
-            </TouchableOpacity>
-          </>
+          <GradientButton
+            onPress={onContinueOtp}
+            disabled={submitting}
+            style={styles.primaryButton}>
+            {submitting ? 'Authenticating...' : 'Continue'}
+          </GradientButton>
         ) : showOtpField ? (
           <>
             <GradientButton
@@ -250,6 +311,20 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
               style={styles.primaryButton}>
               {submitting ? 'Verifying...' : 'Verify OTP'}
             </GradientButton>
+            
+            <TouchableOpacity 
+              style={styles.resendButton}
+              onPress={onResendOtp}
+              disabled={!canResend || resendTimer > 0}>
+              <Text style={[
+                styles.resendButtonText,
+                (!canResend || resendTimer > 0) && styles.resendButtonTextDisabled
+              ]}>
+                {resendTimer > 0 
+                  ? `Resend OTP in ${resendTimer}s` 
+                  : 'Resend OTP'}
+              </Text>
+            </TouchableOpacity>
             
             {submitting && (
               <View style={styles.loadingContainer}>
@@ -313,6 +388,37 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
+  phoneInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: Platform.OS === 'ios' ? 56 : 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 16,
+    backgroundColor: COLORS.white,
+    overflow: 'hidden',
+    ...SHADOWS.small,
+  },
+  countryCodeContainer: {
+    height: '100%',
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  countryCodeText: {
+    color: COLORS.white,
+    fontSize: Platform.OS === 'ios' ? 17 : 16,
+    fontWeight: '600',
+  },
+  phoneInput: {
+    flex: 1,
+    height: '100%',
+    paddingHorizontal: Platform.OS === 'ios' ? 16 : 12,
+    paddingVertical: Platform.OS === 'ios' ? 16 : 0,
+    color: COLORS.textPrimary,
+    fontSize: Platform.OS === 'ios' ? 17 : 16,
+  },
   input: {
     height: Platform.OS === 'ios' ? 56 : 52,
     borderRadius: 12,
@@ -357,6 +463,19 @@ const styles = StyleSheet.create({
   },
   inputDisabled: {
     backgroundColor: COLORS.backgroundLight,
+    color: COLORS.textSecondary,
+  },
+  resendButton: {
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  resendButtonText: {
+    color: COLORS.gradientEnd,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  resendButtonTextDisabled: {
     color: COLORS.textSecondary,
   },
   loadingContainer: {

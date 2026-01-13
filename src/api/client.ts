@@ -96,9 +96,14 @@ async function doFetch(path: string, options: RequestOptions = {}) {
   const url = `${BASE_URL}${path}`;
 
   const finalHeaders: Record<string, string> = {
-    'Content-Type': body instanceof FormData ? 'multipart/form-data' : 'application/json',
     ...headers,
   };
+  
+  // Don't set Content-Type for FormData - let the browser set it with boundary
+  // For other requests, set Content-Type to application/json
+  if (!(body instanceof FormData)) {
+    finalHeaders['Content-Type'] = 'application/json';
+  }
 
   let token: string | null = null;
   if (auth) {
@@ -184,7 +189,8 @@ export async function apiPost<T>(
     method: 'POST',
     body,
     auth,
-    headers: isFormData ? {'Content-Type': 'multipart/form-data'} : undefined,
+    // Don't set Content-Type header for FormData - let browser set it with boundary
+    headers: undefined,
   });
 }
 
@@ -198,4 +204,8 @@ export async function apiPut<T>(
     body,
     auth,
   });
+}
+
+export async function apiDelete<T>(path: string, auth = false): Promise<T> {
+  return doFetch(path, {method: 'DELETE', auth});
 }

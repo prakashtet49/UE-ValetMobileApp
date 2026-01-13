@@ -1,4 +1,4 @@
-import {apiGet, apiPost} from './client';
+import {apiGet, apiPost, apiDelete} from './client';
 
 export type CreatePickupRequest = {
   bookingId: string;
@@ -110,7 +110,8 @@ export async function getCurrentPickupJob(): Promise<CurrentPickupResponse> {
 
 export type InProgressBookingResponse = {
   success: boolean;
-  booking: any | null;
+  booking?: any[] | null; // Singular (backward compatibility)
+  bookings?: any[] | null; // Plural (current API format)
 };
 
 export async function getInProgressBooking(): Promise<InProgressBookingResponse> {
@@ -124,10 +125,15 @@ export async function getInProgressBooking(): Promise<InProgressBookingResponse>
     if (error?.status === 404) {
       return {
         success: true,
-        booking: null,
+        booking: [], // Return empty array instead of null
       };
     }
     // For other errors, rethrow
     throw error;
   }
+}
+
+// Delete booking API
+export async function deleteBooking(bookingId: string) {
+  return apiDelete<{success: boolean; message?: string}>(`/api/v1/bookings/${bookingId}`, true);
 }

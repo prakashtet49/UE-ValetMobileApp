@@ -82,6 +82,46 @@ export async function calculateReceipt(
   );
 }
 
+export type PrintWithPaymentRequest = {
+  bookingId: string;
+  vehicleNumber: string;
+  overrideAmount: number;
+  paymentMode: 'Cash' | 'Card' | 'UPI';
+  returnBuffer: boolean;
+};
+
+export type PrintWithPaymentResponse = {
+  success: boolean;
+  printBuffer: string;
+  receiptData: {
+    charges: number;
+    overrideAmount: number;
+    duration: string;
+    vehicleNumber: string;
+    bookingId: string;
+    timestamp: string;
+  };
+};
+
+export async function printReceiptWithPayment(
+  bookingId: string,
+  vehicleNumber: string,
+  overrideAmount: number,
+  paymentMode: 'Cash' | 'Card' | 'UPI',
+): Promise<PrintWithPaymentResponse> {
+  return apiPost<PrintWithPaymentResponse>(
+    '/api/v1/receipt/print-with-payment',
+    {
+      bookingId,
+      vehicleNumber,
+      overrideAmount,
+      paymentMode,
+      returnBuffer: true,
+    },
+    true,
+  );
+}
+
 export async function printReceiptWithOverride(
   bookingId: string,
   vehicleNumber: string,
@@ -99,6 +139,53 @@ export async function printReceiptWithOverride(
   );
 }
 
+export type ShiftSummary = {
+  name: string;
+  vehicleCount: number;
+  totalAmount: number;
+  paymentModes: {
+    Cash?: number;
+    Card?: number;
+    UPI?: number;
+  };
+  isActive: boolean;
+};
+
+export type TotalSummaryShiftsResponse = {
+  totalVehicles: number;
+  totalAmount: number;
+  averageAmount: number;
+  paymentModeBreakdown: {
+    Cash: number;
+    Card: number;
+    UPI: number;
+  };
+  shifts: ShiftSummary[];
+  dateRange: {
+    start?: string;
+    end?: string;
+  };
+};
+
+export async function getTotalSummaryShifts(startDate?: string, endDate?: string): Promise<TotalSummaryShiftsResponse> {
+  let path = '/api/v1/receipt/total-summary-shifts';
+  const params: string[] = [];
+  
+  if (startDate) {
+    params.push(`startDate=${encodeURIComponent(startDate)}`);
+  }
+  if (endDate) {
+    params.push(`endDate=${encodeURIComponent(endDate)}`);
+  }
+  
+  if (params.length > 0) {
+    path += `?${params.join('&')}`;
+  }
+  
+  return apiGet<TotalSummaryShiftsResponse>(path, true);
+}
+
+// Keep old type for backward compatibility (deprecated)
 export type TodaySummaryResponse = {
   date: string;
   driverName: string;
@@ -122,6 +209,7 @@ export type TodaySummaryResponse = {
   }>;
 };
 
+// Keep old function for backward compatibility (deprecated)
 export async function getTodaySummary(): Promise<TodaySummaryResponse> {
   return apiGet<TodaySummaryResponse>(
     '/api/v1/receipt/today-summary',

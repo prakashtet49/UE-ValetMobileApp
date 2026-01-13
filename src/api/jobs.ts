@@ -93,3 +93,10 @@ export async function getCompletedJobs(limit = 50, offset = 0) {
     true,
   );
 }
+
+export async function getCompletedJobsPending(limit = 50, offset = 0) {
+  return apiGet<CompletedJobsResponse>(
+    `/api/v1/jobs/completed?limit=${limit}&offset=${offset}`,
+    true,
+  );
+}

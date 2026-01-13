@@ -70,22 +70,54 @@ export async function uploadParkingPhotos(
     frontPhoto?: {name: string; type: string; uri: string};
     backPhoto?: {name: string; type: string; uri: string};
     damagePhoto?: {name: string; type: string; uri: string};
+    video?: {name: string; type: string; uri: string};
   },
 ) {
   const form = new FormData();
+  
+  // Append parkingJobId (required field)
   form.append('parkingJobId', parkingJobId);
+  
+  // Collect all photos (frontPhoto, backPhoto, damagePhoto) into photos array
+  const photos: Array<{name: string; type: string; uri: string}> = [];
   if (options.frontPhoto) {
-    form.append('frontPhoto', options.frontPhoto as any);
+    photos.push(options.frontPhoto);
   }
   if (options.backPhoto) {
-    form.append('backPhoto', options.backPhoto as any);
+    photos.push(options.backPhoto);
   }
   if (options.damagePhoto) {
-    form.append('damagePhoto', options.damagePhoto as any);
+    photos.push(options.damagePhoto);
   }
+  
+  // Append each photo to 'photos' field (multiple values with same field name for array)
+  photos.forEach(photo => {
+    form.append('photos', photo as any);
+  });
+  
+  // Append video field - file if provided
+  if (options.video) {
+    // Ensure video file object has correct format for React Native FormData
+    const videoFile = {
+      uri: options.video.uri,
+      name: options.video.name || 'video.mp4',
+      type: options.video.type || 'video/mp4',
+    };
+    form.append('video', videoFile as any);
+    console.log('[uploadParkingPhotos] Added video:', videoFile.name, videoFile.type);
+  } else {
+    // Send empty string when video is not provided (matches curl: -F 'video=')
+    form.append('video', '');
+  }
+  
+  console.log('[uploadParkingPhotos] FormData summary:', {
+    parkingJobId,
+    photoCount: photos.length,
+    hasVideo: !!options.video,
+  });
 
   return apiPost<{success: boolean}>(
-    '/api/driver/parking/upload-photos',
+    '/api/driver/parking/upload-media',
     form,
     true,
     true,

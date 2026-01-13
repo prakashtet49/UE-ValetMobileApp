@@ -12,14 +12,15 @@ import {
   ActivityIndicator,
   PermissionsAndroid,
   Switch,
+  Modal,
 } from 'react-native';
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../utils/responsive';
-import {useNavigation} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import {useNavigation, useRoute} from '@react-navigation/native';
+import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-navigation/native-stack';
 import {launchCamera} from 'react-native-image-picker';
 import LinearGradient from 'react-native-linear-gradient';
+import Video from 'react-native-video';
 import {startParking, uploadParkingPhotos, completeParking, startManualBooking} from '../api/parking';
-import {getInProgressBooking} from '../api/pickup';
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import BackButton from '../components/BackButton';
 import GradientButton from '../components/GradientButton';
@@ -31,23 +32,40 @@ import ImagePreviewModal from '../components/ImagePreviewModal';
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
 const arrowRightIcon = require('../assets/icons/arrow-right.png');
 
+type StartParkingScreenProps = NativeStackScreenProps<AppStackParamList, 'StartParking'>;
+
 export default function StartParkingScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<AppStackParamList>>();
-  const [keyTagCode, setKeyTagCode] = useState('');
+  const route = useRoute<StartParkingScreenProps['route']>();
+  
+  // Get params from route (if navigated from InProgressJobsScreen)
+  const params = route.params;
+  
+  const [keyTagCode, setKeyTagCode] = useState(params?.keyTagCode || '');
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [slotNumber, setSlotNumber] = useState('');
   const [remarks, setRemarks] = useState('');
-  const [photos, setPhotos] = useState<Array<{uri: string; name: string; type: string} | null>>([null, null, null]);
-  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [photos, setPhotos] = useState<Array<{uri: string; name: string; type: string}>>([]);
+  const [video, setVideo] = useState<{uri: string; name: string; type: string} | null>(null);
+  const [uploadingPhotoIndex, setUploadingPhotoIndex] = useState<number | null>(null);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [showImagesViewer, setShowImagesViewer] = useState(false);
+  const [showVideoViewer, setShowVideoViewer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [verifyingKeyTag, setVerifyingKeyTag] = useState(false);
-  const [keyTagVerified, setKeyTagVerified] = useState(false);
+  const [keyTagVerified, setKeyTagVerified] = useState(params?.keyTagCode ? true : false);
   const [parkingJobId, setParkingJobId] = useState<string | null>(null);
   const [locationName, setLocationName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [isManualPark, setIsManualPark] = useState(true);
-  const [customerMobile, setCustomerMobile] = useState('');
+  // Set manual park mode based on source:
+  // - If source is "manual", enable manual park (toggle ON/green)
+  // - If keyTagCode exists and source is not "manual", disable manual park (key tag flow)
+  // - Otherwise, default to manual park
+  const [isManualPark, setIsManualPark] = useState(
+    params?.source === 'manual' ? true : (!params?.keyTagCode)
+  );
+  const [customerMobile, setCustomerMobile] = useState(params?.customerPhone || '');
   const [submittingManual, setSubmittingManual] = useState(false);
   const [dialog, setDialog] = useState<{
     visible: boolean;
@@ -65,68 +83,6 @@ export default function StartParkingScreen() {
     uri: null,
     index: null,
   });
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [inProgressBooking, setInProgressBooking] = useState<any>(null);
-
-  // Fetch in-progress booking on mount
-  useEffect(() => {
-    const fetchInProgressBooking = async () => {
-      try {
-        console.log('[StartParkingScreen] Fetching in-progress booking...');
-        const response = await getInProgressBooking();
-        console.log('[StartParkingScreen] In-progress booking response:', response);
-        
-        if (response.success && response.booking) {
-          setInProgressBooking(response.booking);
-          console.log('[StartParkingScreen] Found in-progress booking:', response.booking);
-          
-          // Pre-fill form fields from in-progress booking
-          if (response.booking.keyTagCode) {
-            // Remove UE prefix if present
-            const keyTag = response.booking.keyTagCode.replace(/^UE/i, '');
-            setKeyTagCode(keyTag);
-            setKeyTagVerified(true); // Mark as verified since it's from backend
-            console.log('[StartParkingScreen] Pre-filled keyTagCode (trimmed):', keyTag);
-          }
-          
-          if (response.booking.customerPhone) {
-            // Remove +91 prefix if present
-            const phoneNumber = response.booking.customerPhone.replace(/^\+91/, '');
-            setCustomerMobile(phoneNumber);
-            console.log('[StartParkingScreen] Pre-filled customerPhone (trimmed):', phoneNumber);
-          }
-          
-          if (response.booking.parkingJobId) {
-            setParkingJobId(response.booking.parkingJobId);
-            console.log('[StartParkingScreen] Set parkingJobId:', response.booking.parkingJobId);
-          }
-          
-          if (response.booking.vehicleNumber) {
-            setVehicleNumber(response.booking.vehicleNumber);
-            console.log('[StartParkingScreen] Pre-filled vehicleNumber:', response.booking.vehicleNumber);
-          }
-          
-          if (response.booking.slotNumber) {
-            setSlotNumber(response.booking.slotNumber);
-            console.log('[StartParkingScreen] Pre-filled slotNumber:', response.booking.slotNumber);
-          }
-          
-          if (response.booking.locationDescription) {
-            setRemarks(response.booking.locationDescription);
-            console.log('[StartParkingScreen] Pre-filled locationDescription:', response.booking.locationDescription);
-          }
-        } else {
-          console.log('[StartParkingScreen] No in-progress booking found');
-        }
-      } catch (error) {
-        console.error('[StartParkingScreen] Failed to fetch in-progress booking:', error);
-      } finally {
-        setInitialLoading(false);
-      }
-    };
-
-    fetchInProgressBooking();
-  }, []);
 
   const requestCameraPermission = async () => {
     if (Platform.OS === 'android') {
@@ -150,7 +106,7 @@ export default function StartParkingScreen() {
     return true; // iOS handles permissions automatically
   };
 
-  const handleTakePhoto = async (index: number) => {
+  const handleCaptureImages = async () => {
     if (!keyTagVerified || !parkingJobId) {
       setDialog({
         visible: true,
@@ -215,16 +171,16 @@ export default function StartParkingScreen() {
         const stampedUri = originalUri
           ? await stampImageWithWatermarkAndTimestamp(originalUri)
           : '';
-        const newPhotos = [...photos];
-        newPhotos[index] = {
+        const newPhoto = {
           uri: stampedUri,
-          name: asset.fileName || `photo_${index}.jpg`,
+          name: asset.fileName || `photo_${photos.length}.jpg`,
           type: asset.type || 'image/jpeg',
         };
-        setPhotos(newPhotos);
+        const updatedPhotos = [...photos, newPhoto];
+        setPhotos(updatedPhotos);
 
         // Upload photo immediately
-        await uploadPhoto(index, newPhotos[index]);
+        await uploadPhoto(photos.length, newPhoto);
       }
     } catch (error) {
       console.error('Camera error:', error);
@@ -237,14 +193,95 @@ export default function StartParkingScreen() {
     }
   };
 
-  const uploadPhoto = async (index: number, photo: {uri: string; name: string; type: string} | null) => {
-    if (!photo || !parkingJobId) return;
+  const handleCaptureVideo = async () => {
+    if (!keyTagVerified || !parkingJobId) {
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Please verify key tag first',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
+      return;
+    }
 
-    setUploadingPhotos(true);
+    // Request camera permission
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) {
+      setDialog({
+        visible: true,
+        title: 'Permission Denied',
+        message: 'Camera permission is required to record video. Please enable it in your device settings.',
+        buttons: [
+          {text: 'Cancel', style: 'cancel'},
+          {text: 'Open Settings', onPress: () => {
+            if (Platform.OS === 'android') {
+              setDialog({
+                visible: true,
+                title: 'Info',
+                message: 'Please enable Camera permission in App Settings',
+                buttons: [{text: 'OK', style: 'default'}],
+              });
+            }
+          }, style: 'default'},
+        ],
+      });
+      return;
+    }
+
+    try {
+      const result = await launchCamera({
+        mediaType: 'video',
+        cameraType: 'back',
+        videoQuality: 'medium',
+        durationLimit: 30, // 30 seconds max
+      });
+
+      if (result.didCancel) {
+        return;
+      }
+
+      if (result.errorCode) {
+        setDialog({
+          visible: true,
+          title: 'Error',
+          message: result.errorMessage || 'Failed to capture video',
+          buttons: [{text: 'OK', style: 'default'}],
+        });
+        return;
+      }
+
+      if (result.assets && result.assets[0]) {
+        const asset = result.assets[0];
+        const videoData = {
+          uri: asset.uri || '',
+          name: asset.fileName || 'video.mp4',
+          type: asset.type || 'video/mp4',
+        };
+        setVideo(videoData);
+
+        // Upload video immediately
+        await uploadVideo(videoData);
+      }
+    } catch (error) {
+      console.error('Camera error:', error);
+      setDialog({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to open camera',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
+    }
+  };
+
+  const uploadPhoto = async (index: number, photo: {uri: string; name: string; type: string}) => {
+    if (!parkingJobId) return;
+
+    setUploadingPhotoIndex(index);
     try {
       const photoKeys = ['frontPhoto', 'backPhoto', 'damagePhoto'] as const;
+      const photoKey = photoKeys[Math.min(index, 2)];
       const photoData = {
-        [photoKeys[index]]: photo,
+        [photoKey]: photo,
       };
 
       await uploadParkingPhotos(parkingJobId, photoData);
@@ -257,7 +294,27 @@ export default function StartParkingScreen() {
         buttons: [{text: 'OK', style: 'default'}],
       });
     } finally {
-      setUploadingPhotos(false);
+      setUploadingPhotoIndex(null);
+    }
+  };
+
+  const uploadVideo = async (videoData: {uri: string; name: string; type: string}) => {
+    if (!parkingJobId) return;
+
+    setUploadingVideo(true);
+    try {
+      // Upload video using the video option (not damagePhoto)
+      await uploadParkingPhotos(parkingJobId, {video: videoData});
+    } catch (error) {
+      console.error('Failed to upload video:', error);
+      setDialog({
+        visible: true,
+        title: 'Upload Failed',
+        message: 'Failed to upload video. Please try again.',
+        buttons: [{text: 'OK', style: 'default'}],
+      });
+    } finally {
+      setUploadingVideo(false);
     }
   };
 
@@ -285,6 +342,20 @@ export default function StartParkingScreen() {
       setVerifyingKeyTag(false);
     }
   };
+
+  // Auto-verify key tag when navigating from InProgressJobsScreen with params
+  useEffect(() => {
+    // Only auto-verify if:
+    // 1. keyTagCode exists in params (navigated from InProgress)
+    // 2. parkingJobId is not set (not already verified)
+    // 3. Not currently verifying
+    // 4. keyTagCode is not empty
+    if (params?.keyTagCode && !parkingJobId && !verifyingKeyTag && keyTagCode.trim()) {
+      console.log('[StartParking] Auto-verifying key tag from params:', params.keyTagCode);
+      handleVerifyKeyTag();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.keyTagCode]); // Only run when params change (on mount or navigation)
 
   const handleManualBooking = async () => {
     if (!customerMobile.trim()) {
@@ -390,24 +461,6 @@ export default function StartParkingScreen() {
       setSubmitting(false);
     }
   };
-
-  // Show loading screen while fetching in-progress booking
-  if (initialLoading) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <BackButton color="#1f2937" useIcon={true} />
-          <View style={styles.headerLogoContainer}>
-            <Image source={urbaneaseLogo} style={styles.headerLogo} />
-          </View>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.gradientEnd} />
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>
@@ -572,53 +625,65 @@ export default function StartParkingScreen() {
             />
           </View>
 
-          {/* Photo Cards */}
+          {/* Media Capture Cards */}
           <View style={styles.photoPreviewContainer}>
-            {photos.map((photo, index) => (
-              <View key={index} style={styles.photoPlaceholder}>
-                <TouchableOpacity
-                  style={styles.photoTouchable}
-                  onPress={() => {
-                    if (photo) {
-                      setPreviewImage({visible: true, uri: photo.uri, index});
-                    } else {
-                      handleTakePhoto(index);
-                    }
-                  }}
-                  disabled={!keyTagVerified}>
-                  {photo ? (
-                    <Image
-                      source={{uri: photo.uri}}
-                      style={styles.photoPreview}
-                    />
-                  ) : (
-                    <View style={styles.photoEmpty}>
-                      <Text style={styles.photoEmptyIcon}>📷</Text>
-                      <Text style={styles.photoEmptyText}>
-                        {index === 0 ? 'Image 1' : index === 1 ? 'Image 2' : 'Image 3'}
-                      </Text>
-                    </View>
+            {/* Images Box */}
+            <View style={styles.mediaPlaceholder}>
+              <TouchableOpacity
+                style={styles.mediaTouchable}
+                onPress={handleCaptureImages}
+                disabled={!keyTagVerified}>
+                <View style={styles.mediaEmpty}>
+                  <Text style={styles.mediaEmptyIcon}>📷</Text>
+                  <Text style={styles.mediaEmptyText}>Capture Images</Text>
+                  {photos.length > 0 && (
+                    <Text style={styles.mediaCount}>{photos.length} image{photos.length > 1 ? 's' : ''}</Text>
                   )}
-                  {uploadingPhotos && photo && (
-                    <View style={styles.uploadingOverlay}>
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-                {photo && (
-                  <TouchableOpacity
-                    style={styles.cancelIcon}
-                    onPress={() => {
-                      const newPhotos = [...photos];
-                      newPhotos[index] = null;
-                      setPhotos(newPhotos);
-                    }}
-                    activeOpacity={0.7}>
-                    <Text style={styles.cancelIconText}>✕</Text>
-                  </TouchableOpacity>
+                </View>
+                {uploadingPhotoIndex !== null && (
+                  <View style={styles.uploadingOverlay}>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  </View>
                 )}
-              </View>
-            ))}
+              </TouchableOpacity>
+              {photos.length > 0 && (
+                <TouchableOpacity
+                  style={styles.viewButton}
+                  onPress={() => setShowImagesViewer(true)}
+                  activeOpacity={0.7}>
+                  <Text style={styles.viewButtonText}>View</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Video Box */}
+            <View style={styles.mediaPlaceholder}>
+              <TouchableOpacity
+                style={styles.mediaTouchable}
+                onPress={handleCaptureVideo}
+                disabled={!keyTagVerified || video !== null}>
+                <View style={styles.mediaEmpty}>
+                  <Text style={styles.mediaEmptyIcon}>🎥</Text>
+                  <Text style={styles.mediaEmptyText}>Capture Video</Text>
+                  {video && (
+                    <Text style={styles.mediaCount}>1 video</Text>
+                  )}
+                </View>
+                {uploadingVideo && (
+                  <View style={styles.uploadingOverlay}>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  </View>
+                )}
+              </TouchableOpacity>
+              {video && (
+                <TouchableOpacity
+                  style={styles.viewButton}
+                  onPress={() => setShowVideoViewer(true)}
+                  activeOpacity={0.7}>
+                  <Text style={styles.viewButtonText}>View</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           {/* Remarks Input */}
@@ -656,17 +721,116 @@ export default function StartParkingScreen() {
         onDismiss={() => setDialog({...dialog, visible: false})}
       />
 
-      {/* Image Preview Modal */}
-      <ImagePreviewModal
-        visible={previewImage.visible}
-        imageUri={previewImage.uri}
-        onClose={() => setPreviewImage({visible: false, uri: null, index: null})}
-        onRecapture={() => {
-          if (previewImage.index !== null) {
-            handleTakePhoto(previewImage.index);
-          }
-        }}
-      />
+      {/* Images Viewer Modal */}
+      <Modal
+        visible={showImagesViewer}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImagesViewer(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Captured Images ({photos.length})</Text>
+              <TouchableOpacity onPress={() => setShowImagesViewer(false)}>
+                <Text style={styles.modalCloseButton}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalScroll}>
+              {photos.map((photo, index) => (
+                <View key={index} style={styles.imagePreviewItem}>
+                  <Image source={{uri: photo.uri}} style={styles.imagePreviewFull} />
+                  <TouchableOpacity
+                    style={styles.deleteImageButton}
+                    onPress={() => {
+                      setDialog({
+                        visible: true,
+                        title: 'Delete Image',
+                        message: 'Are you sure you want to delete this image?',
+                        buttons: [
+                          {text: 'Cancel', style: 'cancel'},
+                          {
+                            text: 'Delete',
+                            style: 'destructive',
+                            onPress: () => {
+                              const newPhotos = photos.filter((_, i) => i !== index);
+                              setPhotos(newPhotos);
+                              if (newPhotos.length === 0) {
+                                setShowImagesViewer(false);
+                              }
+                            }
+                          }
+                        ],
+                      });
+                    }}>
+                    <Text style={styles.deleteImageButtonText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.captureMoreButton}
+              onPress={() => {
+                setShowImagesViewer(false);
+                setTimeout(() => handleCaptureImages(), 300);
+              }}>
+              <Text style={styles.captureMoreButtonText}>Capture More</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Video Viewer Modal */}
+      <Modal
+        visible={showVideoViewer}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowVideoViewer(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Captured Video</Text>
+              <TouchableOpacity onPress={() => setShowVideoViewer(false)}>
+                <Text style={styles.modalCloseButton}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.videoPreviewContainer}>
+              {video && (
+                <Video
+                  source={{uri: video.uri}}
+                  style={styles.videoPlayer}
+                  controls={true}
+                  resizeMode="contain"
+                  paused={false}
+                />
+              )}
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.deleteVideoButton}
+                onPress={() => {
+                  setDialog({
+                    visible: true,
+                    title: 'Delete Video',
+                    message: 'Are you sure you want to delete this video?',
+                    buttons: [
+                      {text: 'Cancel', style: 'cancel'},
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: () => {
+                          setVideo(null);
+                          setShowVideoViewer(false);
+                        }
+                      }
+                    ],
+                  });
+                }}>
+                <Text style={styles.deleteVideoButtonText}>Delete Video</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -806,7 +970,7 @@ const styles = StyleSheet.create({
     gap: moderateScale(12),
     marginBottom: verticalScale(20),
   },
-  photoPlaceholder: {
+  mediaPlaceholder: {
     flex: 1,
     aspectRatio: 1,
     borderRadius: moderateScale(16),
@@ -814,52 +978,52 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.border,
     ...SHADOWS.small,
   },
-  photoTouchable: {
+  mediaTouchable: {
     width: '100%',
     height: '100%',
     borderRadius: moderateScale(16),
     overflow: 'hidden',
   },
-  photoPreview: {
-    width: '100%',
-    height: '100%',
-  },
-  cancelIcon: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#ef4444',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  cancelIconText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  photoEmpty: {
+  mediaEmpty: {
     width: '100%',
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.white,
   },
-  photoEmptyIcon: {
+  mediaEmptyIcon: {
     fontSize: getResponsiveFontSize(32),
     marginBottom: verticalScale(4),
   },
-  photoEmptyText: {
+  mediaEmptyText: {
     fontSize: getResponsiveFontSize(12),
     fontWeight: '600',
     color: COLORS.textSecondary,
+  },
+  mediaCount: {
+    fontSize: getResponsiveFontSize(10),
+    fontWeight: '500',
+    color: COLORS.gradientEnd,
+    marginTop: verticalScale(4),
+  },
+  viewButton: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: COLORS.gradientEnd,
+    paddingHorizontal: moderateScale(12),
+    paddingVertical: verticalScale(6),
+    borderRadius: moderateScale(8),
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  viewButtonText: {
+    color: '#ffffff',
+    fontSize: getResponsiveFontSize(11),
+    fontWeight: '600',
   },
   uploadingOverlay: {
     position: 'absolute',
@@ -871,6 +1035,109 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: moderateScale(16),
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: getResponsiveSpacing(20),
+  },
+  modalContent: {
+    backgroundColor: COLORS.white,
+    borderRadius: moderateScale(16),
+    width: '100%',
+    maxHeight: '80%',
+    ...SHADOWS.large,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: getResponsiveSpacing(16),
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  modalTitle: {
+    fontSize: getResponsiveFontSize(18),
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  modalCloseButton: {
+    fontSize: getResponsiveFontSize(24),
+    color: COLORS.textSecondary,
+    fontWeight: '300',
+  },
+  modalScroll: {
+    maxHeight: moderateScale(400),
+  },
+  imagePreviewItem: {
+    marginBottom: verticalScale(16),
+    padding: getResponsiveSpacing(12),
+  },
+  imagePreviewFull: {
+    width: '100%',
+    height: moderateScale(250),
+    borderRadius: moderateScale(12),
+    marginBottom: verticalScale(8),
+  },
+  deleteImageButton: {
+    backgroundColor: '#ef4444',
+    padding: getResponsiveSpacing(8),
+    borderRadius: moderateScale(8),
+    alignItems: 'center',
+  },
+  deleteImageButtonText: {
+    color: '#ffffff',
+    fontSize: getResponsiveFontSize(12),
+    fontWeight: '600',
+  },
+  captureMoreButton: {
+    backgroundColor: COLORS.gradientEnd,
+    padding: getResponsiveSpacing(14),
+    margin: getResponsiveSpacing(16),
+    borderRadius: moderateScale(12),
+    alignItems: 'center',
+  },
+  captureMoreButtonText: {
+    color: '#ffffff',
+    fontSize: getResponsiveFontSize(14),
+    fontWeight: '600',
+  },
+  videoPreviewContainer: {
+    padding: getResponsiveSpacing(16),
+    alignItems: 'center',
+    minHeight: moderateScale(300),
+    justifyContent: 'center',
+    backgroundColor: '#000000',
+  },
+  videoPlayer: {
+    width: '100%',
+    height: moderateScale(300),
+  },
+  videoPlaceholder: {
+    fontSize: getResponsiveFontSize(48),
+    marginBottom: verticalScale(12),
+  },
+  videoInfo: {
+    fontSize: getResponsiveFontSize(14),
+    color: COLORS.textSecondary,
+  },
+  modalActions: {
+    padding: getResponsiveSpacing(16),
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  deleteVideoButton: {
+    backgroundColor: '#ef4444',
+    padding: getResponsiveSpacing(12),
+    borderRadius: moderateScale(12),
+    alignItems: 'center',
+  },
+  deleteVideoButtonText: {
+    color: '#ffffff',
+    fontSize: getResponsiveFontSize(14),
+    fontWeight: '600',
   },
   errorText: {
     color: COLORS.error,
