@@ -20,6 +20,7 @@ import {checkoutParking} from '../../api/parking';
 import {COLORS, SHADOWS} from '../../constants/theme';
 import type {AppStackParamList} from '../../navigation/AppNavigator';
 import {logError, getUserFriendlyMessage} from '../../utils/errorHandler';
+import {formatDateTime} from '../../utils/dateFormat';
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../../utils/responsive';
 
 const carParkingIcon = require('../../assets/icons/car_parking.png');
@@ -45,20 +46,10 @@ export default function ActiveJobsTab() {
     visible: boolean;
     message: string;
   }>({visible: false, message: ''});
-
-  const formatTime = (timestamp: string) => {
-    try {
-      const date = new Date(timestamp);
-      const hours = date.getHours();
-      const minutes = date.getMinutes();
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const formattedHours = hours % 12 || 12;
-      const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
-      return `${formattedHours}:${formattedMinutes} ${ampm}`;
-    } catch (error) {
-      return timestamp;
-    }
-  };
+  const [successDialog, setSuccessDialog] = useState<{
+    visible: boolean;
+    message: string;
+  }>({visible: false, message: ''});
 
   async function load() {
     try {
@@ -127,15 +118,10 @@ export default function ActiveJobsTab() {
       
       setCheckoutDialog({visible: false, job: null});
       
-      navigation.navigate('Home', {
-        activePickupJob: {
-          bookingId: checkoutDialog.job.id,
-          vehicleNumber: checkoutDialog.job.vehicleNumber,
-          keyTagCode: checkoutDialog.job.tagNumber,
-          slotNumber: checkoutDialog.job.slotOrZone,
-          locationDescription: checkoutDialog.job.locationDescription || checkoutDialog.job.locationName,
-          isCheckout: true,
-        },
+      const successMessage = response?.message || 'Checkout successful.';
+      setSuccessDialog({
+        visible: true,
+        message: successMessage,
       });
     } catch (error: any) {
       console.error('Checkout failed:', error);
@@ -204,7 +190,7 @@ export default function ActiveJobsTab() {
             <Image source={durationIcon} style={styles.detailIcon} />
             <Text style={styles.detailLabel}>Parked at</Text>
           </View>
-          <Text style={styles.detailValue}>{formatTime(item.parkedAt)}</Text>
+          <Text style={styles.detailValue}>{formatDateTime(item.parkedAt)}</Text>
         </View>
         
         <View style={styles.detailRow}>
@@ -354,6 +340,30 @@ export default function ActiveJobsTab() {
             <Text style={styles.dialogMessage}>{errorDialog.message}</Text>
             <TouchableOpacity
               onPress={() => setErrorDialog({visible: false, message: ''})}
+              style={styles.errorDialogButton}>
+              <LinearGradient
+                colors={['#76D0E3', '#3156D8']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={styles.dialogButtonGradient}>
+                <Text style={styles.dialogButtonTextConfirm}>OK</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {successDialog.visible && (
+        <View style={styles.dialogOverlay}>
+          <View style={styles.dialogContainer}>
+            <Text style={styles.dialogTitle}>Checkout Successful</Text>
+            <Text style={styles.dialogMessage}>{successDialog.message}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setSuccessDialog({visible: false, message: ''});
+                load();
+                navigation.navigate('Home');
+              }}
               style={styles.errorDialogButton}>
               <LinearGradient
                 colors={['#76D0E3', '#3156D8']}

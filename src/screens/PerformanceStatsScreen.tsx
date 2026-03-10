@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import {getDeliveredToday, getParkedToday, type DeliveredTodayItem, type ParkedTodayItem} from '../api/stats';
+import {formatDateTime} from '../utils/dateFormat';
 
 export default function PerformanceStatsScreen() {
   const [loading, setLoading] = useState(true);
@@ -72,7 +73,7 @@ export default function PerformanceStatsScreen() {
           </Text>
         </View>
         <Text style={styles.itemMetaMuted}>
-          Parked at {new Date(item.parkedAt).toLocaleTimeString()}
+          Parked at {formatDateTime(item.parkedAt)}
         </Text>
       </View>
     ));
@@ -99,8 +100,8 @@ export default function PerformanceStatsScreen() {
           </Text>
         </View>
         <Text style={styles.itemMetaMuted}>
-          Parked at {new Date(item.parkedAt).toLocaleTimeString()} • Delivered at{' '}
-          {new Date(item.deliveredAt).toLocaleTimeString()}
+          Parked at {formatDateTime(item.parkedAt)} • Delivered at{' '}
+          {formatDateTime(item.deliveredAt)}
         </Text>
       </View>
     ));

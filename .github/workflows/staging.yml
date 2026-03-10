@@ -1,0 +1,88 @@
+# Staging CI/CD: On push of tag "staging", "staging-patch", "staging-minor", "staging-major"
+# -> bump version accordingly, build Android release, deploy to Firebase App Distribution
+name: Staging Build and Deploy
+
+on:
+  push:
+    tags:
+      - staging
+      - 'staging-patch'
+      - 'staging-minor'
+      - 'staging-major'
+
+env:
+  FIREBASE_APP_ID_ANDROID: '1:556469915246:android:7173377775e57f9bc1a07f'
+  NODE_VERSION: '20'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine bump type from tag
+        id: bump
+        run: |
+          TAG="${{ github.ref_name }}"
+          case "$TAG" in
+            staging-major) echo "type=major" >> $GITHUB_OUTPUT ;;
+            staging-minor) echo "type=minor" >> $GITHUB_OUTPUT ;;
+            staging-patch|staging) echo "type=patch" >> $GITHUB_OUTPUT ;;
+            *) echo "type=patch" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Bump version (${{ steps.bump.outputs.type }})
+        run: node scripts/bump-version.js ${{ steps.bump.outputs.type }}
+
+      - name: Commit and push version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app.json package.json android/app/build.gradle
+          git diff --staged --quiet || git commit -m "chore: bump version (${{ steps.bump.outputs.type }}) for staging release [skip ci]"
+          git push origin main || true
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build Android Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease \
+            -PMYAPP_RELEASE_STORE_FILE=debug.keystore \
+            -PMYAPP_RELEASE_STORE_PASSWORD=android \
+            -PMYAPP_RELEASE_KEY_ALIAS=androiddebugkey \
+            -PMYAPP_RELEASE_KEY_PASSWORD=android
+          cd ..
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy to Firebase App Distribution
+        run: |
+          VERSION=$(node -p "require('./app.json').version")
+          firebase appdistribution:distribute \
+            android/app/build/outputs/apk/release/app-release.apk \
+            --app ${{ env.FIREBASE_APP_ID_ANDROID }} \
+            --groups "internal-testers" \
+            --release-notes "Staging build v${VERSION} - $(date -u +%Y-%m-%dT%H:%MZ)"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

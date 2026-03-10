@@ -20,6 +20,7 @@ import BackButton from '../components/BackButton';
 import {COLORS, SHADOWS} from '../constants/theme';
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import {logError, getUserFriendlyMessage} from '../utils/errorHandler';
+import {formatDateTime} from '../utils/dateFormat';
 
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
 const carParkingIcon = require('../assets/icons/car_parking.png');
@@ -45,20 +46,10 @@ export default function ActiveJobsScreen() {
     visible: boolean;
     message: string;
   }>({visible: false, message: ''});
-
-  const formatTime = (timestamp: string) => {
-    try {
-      const date = new Date(timestamp);
-      const hours = date.getHours();
-      const minutes = date.getMinutes();
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const formattedHours = hours % 12 || 12;
-      const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
-      return `${formattedHours}:${formattedMinutes} ${ampm}`;
-    } catch (error) {
-      return timestamp;
-    }
-  };
+  const [successDialog, setSuccessDialog] = useState<{
+    visible: boolean;
+    message: string;
+  }>({visible: false, message: ''});
 
   async function load() {
     try {
@@ -119,32 +110,25 @@ export default function ActiveJobsScreen() {
     try {
       console.log('Checking out job:', checkoutDialog.job.id);
       
-      // Call checkout API
+      // Call checkout API (checkout-v2)
       const response = await checkoutParking({
         bookingId: checkoutDialog.job.id,
       });
       
       console.log('Checkout successful:', response);
       
-      // Close dialog
       setCheckoutDialog({visible: false, job: null});
       
-      // Navigate to Home screen with complete job details for the banner
-      navigation.navigate('Home', {
-        activePickupJob: {
-          bookingId: checkoutDialog.job.id,
-          vehicleNumber: checkoutDialog.job.vehicleNumber,
-          keyTagCode: checkoutDialog.job.tagNumber,
-          slotNumber: checkoutDialog.job.slotOrZone,
-          locationDescription: checkoutDialog.job.locationDescription || checkoutDialog.job.locationName,
-          isCheckout: true,
-        },
+      // Show success dialog with API message, then navigate to Home without banner
+      const successMessage = response?.message || 'Checkout successful.';
+      setSuccessDialog({
+        visible: true,
+        message: successMessage,
       });
     } catch (error: any) {
       console.error('Checkout failed:', error);
       setCheckoutDialog({visible: false, job: null});
       
-      // Show error dialog
       const errorMessage = error?.body?.message || error?.message || 'Failed to checkout. Please try again.';
       setErrorDialog({
         visible: true,
@@ -209,7 +193,7 @@ export default function ActiveJobsScreen() {
             <Image source={durationIcon} style={styles.detailIcon} />
             <Text style={styles.detailLabel}>Parked at</Text>
           </View>
-          <Text style={styles.detailValue}>{formatTime(item.parkedAt)}</Text>
+          <Text style={styles.detailValue}>{formatDateTime(item.parkedAt)}</Text>
         </View>
         
         <View style={styles.detailRow}>
@@ -385,6 +369,31 @@ export default function ActiveJobsScreen() {
             <Text style={styles.dialogMessage}>{errorDialog.message}</Text>
             <TouchableOpacity
               onPress={() => setErrorDialog({visible: false, message: ''})}
+              style={styles.errorDialogButton}>
+              <LinearGradient
+                colors={['#76D0E3', '#3156D8']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={styles.dialogButtonGradient}>
+                <Text style={styles.dialogButtonTextConfirm}>OK</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Success Dialog */}
+      {successDialog.visible && (
+        <View style={styles.dialogOverlay}>
+          <View style={styles.dialogContainer}>
+            <Text style={styles.dialogTitle}>Checkout Successful</Text>
+            <Text style={styles.dialogMessage}>{successDialog.message}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setSuccessDialog({visible: false, message: ''});
+                load();
+                navigation.navigate('Home');
+              }}
               style={styles.errorDialogButton}>
               <LinearGradient
                 colors={['#76D0E3', '#3156D8']}

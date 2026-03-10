@@ -42,7 +42,7 @@ export type ParkingCompleteResponse = {
   slotOrZone: string;
 };
 
-export async function getPendingParking(limit = 50) {
+export async function getPendingParking(limit = 100) {
   return apiGet<PendingParkingResponse>(
     `/api/driver/parking/pending?limit=${limit}`,
     true,
@@ -213,7 +213,7 @@ export type CheckoutResponse = {
 
 export async function checkoutParking(payload: CheckoutRequest) {
   return apiPost<CheckoutResponse>(
-    '/api/driver/parking/checkout',
+    '/api/driver/parking/checkout-v2', // use v2 endpoint (do not change to checkout)
     payload,
     true,
   );

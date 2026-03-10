@@ -37,9 +37,9 @@ export type JobStatsResponse = {
   lastUpdated: string;
 };
 
-export async function getActiveJobs(limit = 50, offset = 0) {
+export async function getActiveJobs(limit = 100, offset = 0) {
   return apiGet<ActiveJobsResponse>(
-    `/api/v1/jobs/active?limit=${limit}&offset=${offset}`,
+    `/api/v1/jobs/active-all?limit=${limit}&offset=${offset}`,
     true,
   );
 }
@@ -87,14 +87,14 @@ export type CompletedJobsResponse = {
   data: CompletedJob[];
 };
 
-export async function getCompletedJobs(limit = 50, offset = 0) {
+export async function getCompletedJobs(limit = 100, offset = 0) {
   return apiGet<CompletedJobsResponse>(
     `/api/v1/jobs/completed-all?limit=${limit}&offset=${offset}`,
     true,
   );
 }
 
-export async function getCompletedJobsPending(limit = 50, offset = 0) {
+export async function getCompletedJobsPending(limit = 100, offset = 0) {
   return apiGet<CompletedJobsResponse>(
     `/api/v1/jobs/completed?limit=${limit}&offset=${offset}`,
     true,

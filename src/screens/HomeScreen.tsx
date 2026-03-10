@@ -632,14 +632,17 @@ export default function HomeScreen() {
       // This ensures count is updated when returning from StartParkingScreen
       refreshInProgressCount();
       
-      // Check if there's an active pickup job passed via navigation
+      // Check if there's an active pickup job passed via navigation (do not show banner for checkout)
       console.log('[HomeScreen] useFocusEffect - route.params:', route.params);
-      if (route.params?.activePickupJob) {
+      if (route.params?.activePickupJob && !route.params.activePickupJob.isCheckout) {
         console.log('[HomeScreen] Setting active pickup job from route params:', route.params.activePickupJob);
         setActivePickupJob(route.params.activePickupJob);
         setPickupStatus('pending'); // Reset status when new job arrives
         
         // Clear the route params to prevent re-showing the banner
+        navigation.setParams({activePickupJob: undefined} as any);
+      } else if (route.params?.activePickupJob?.isCheckout) {
+        // Checkout flow: do not show banner, just clear params
         navigation.setParams({activePickupJob: undefined} as any);
       } else {
         console.log('[HomeScreen] No active pickup job in route params');
