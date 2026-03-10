@@ -10,6 +10,7 @@ import {
   TextInput,
   TouchableOpacity,
   Linking,
+  Platform,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -438,14 +439,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tagBadge: {
-    paddingHorizontal: getResponsiveSpacing(12),
-    paddingVertical: verticalScale(6),
+    paddingHorizontal: Platform.OS === 'ios' ? getResponsiveSpacing(14) : getResponsiveSpacing(12),
+    paddingVertical: Platform.OS === 'ios' ? verticalScale(8) : verticalScale(6),
     borderRadius: moderateScale(12),
+    minWidth: Platform.OS === 'ios' ? moderateScale(60) : moderateScale(56),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tagText: {
     color: COLORS.white,
-    fontSize: getResponsiveFontSize(13),
+    fontSize: Platform.OS === 'ios' ? getResponsiveFontSize(14) : getResponsiveFontSize(13),
     fontWeight: '600',
+    textAlign: 'center',
   },
   divider: {
     height: 1,
@@ -504,6 +509,7 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(15),
     color: COLORS.textPrimary,
     paddingVertical: 0,
+    textAlign: Platform.OS === 'ios' ? 'left' : undefined,
   },
   clearButton: {
     padding: getResponsiveSpacing(4),
@@ -557,14 +563,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   checkoutButtonGradient: {
-    paddingVertical: verticalScale(12),
+    paddingVertical: Platform.OS === 'ios' ? verticalScale(14) : verticalScale(12),
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: Platform.OS === 'ios' ? verticalScale(48) : verticalScale(44),
   },
   checkoutButtonText: {
     color: COLORS.white,
-    fontSize: getResponsiveFontSize(16),
+    fontSize: Platform.OS === 'ios' ? getResponsiveFontSize(17) : getResponsiveFontSize(16),
     fontWeight: '700',
+    textAlign: 'center',
+    width: '100%',
   },
   dialogOverlay: {
     position: 'absolute',
@@ -662,11 +671,15 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(16),
     fontWeight: '600',
     color: COLORS.textSecondary,
+    textAlign: 'center',
+    width: '100%',
   },
   dialogButtonTextConfirm: {
     fontSize: getResponsiveFontSize(16),
     fontWeight: '700',
     color: COLORS.white,
+    textAlign: 'center',
+    width: '100%',
   },
   errorDialogButton: {
     width: '100%',

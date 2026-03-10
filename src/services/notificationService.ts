@@ -8,35 +8,30 @@ const FCM_TOKEN_KEY = 'urbanease.fcmToken';
 const NOTIFICATION_CHANNEL_ID = 'urbanease_sound_v3';
 
 /**
- * Create Android notification channel
+ * Create Android notification channel (idempotent).
+ * Only creates the channel if it doesn't exist. Never deletes the current channel
+ * so sound/vibration settings stay reliable and the buzzer plays every time.
  */
 async function createNotificationChannel() {
-  if (Platform.OS === 'android') {
-    console.log('[CHANNEL] Creating notification channel...');
-    
-    // Get all existing channels
-    const channels = await notifee.getChannels();
-    console.log('[CHANNEL] Existing channels:', channels.map(c => c.id));
-    
-    // Delete old channels if they exist
-    const oldChannels = ['default', 'urbanease_custom_sound_v1', 'urbanease_sound_v2'];
-    for (const channelId of oldChannels) {
-      try {
-        await notifee.deleteChannel(channelId);
-        console.log(`[CHANNEL] 🗑️ Deleted old channel: ${channelId}`);
-      } catch (error) {
-        // Channel might not exist, ignore error
-      }
-    }
-    
-    // Check if current channel exists
-    const existingChannel = channels.find(c => c.id === NOTIFICATION_CHANNEL_ID);
-    if (existingChannel) {
-      console.log('[CHANNEL] ⚠️ Channel already exists:', existingChannel);
-      console.log('[CHANNEL] Current sound:', existingChannel.sound);
-    }
-    
-    const channelConfig = {
+  if (Platform.OS !== 'android') return;
+
+  const channels = await notifee.getChannels();
+  const existing = channels.find(c => c.id === NOTIFICATION_CHANNEL_ID);
+
+  if (existing) {
+    return;
+  }
+
+  // Delete only old/deprecated channel IDs so we don't leave duplicates
+  const oldChannels = ['default', 'urbanease_custom_sound_v1', 'urbanease_sound_v2'];
+  for (const channelId of oldChannels) {
+    try {
+      await notifee.deleteChannel(channelId);
+    } catch (_) {}
+  }
+
+  try {
+    await notifee.createChannel({
       id: NOTIFICATION_CHANNEL_ID,
       name: 'UrbanEase Notifications',
       importance: AndroidImportance.HIGH,
@@ -45,17 +40,19 @@ async function createNotificationChannel() {
       vibrationPattern: [300, 500],
       lights: true,
       lightColor: '#3156D8',
-    };
-    
-    console.log('[CHANNEL] Creating channel with config:', channelConfig);
-    await notifee.createChannel(channelConfig);
-    
-    // Verify channel was created
-    const verifyChannels = await notifee.getChannels();
-    const createdChannel = verifyChannels.find(c => c.id === NOTIFICATION_CHANNEL_ID);
-    console.log('[CHANNEL] ✅ Channel created successfully');
-    console.log('[CHANNEL] Verified channel:', createdChannel);
-    console.log('[CHANNEL] Sound setting:', createdChannel?.sound);
+    });
+  } catch (e) {
+    // If custom sound fails (e.g. res/raw/sound.mp3 missing), use system default so buzzer always plays
+    await notifee.createChannel({
+      id: NOTIFICATION_CHANNEL_ID,
+      name: 'UrbanEase Notifications',
+      importance: AndroidImportance.HIGH,
+      sound: 'default',
+      vibration: true,
+      vibrationPattern: [300, 500],
+      lights: true,
+      lightColor: '#3156D8',
+    });
   }
 }
 
@@ -166,6 +163,9 @@ export async function initializeFCM(): Promise<string | null> {
       return null;
     }
     console.log('[FCM INIT] ✅ Notification permission granted');
+
+    // Create notification channel immediately so sound/buzzer is ready before first notification
+    await createNotificationChannel();
 
     // Get FCM token
     console.log('[FCM INIT] Step 2: Getting FCM token from Firebase...');

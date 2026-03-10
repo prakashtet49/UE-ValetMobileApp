@@ -26,6 +26,7 @@ import PerformanceStatsScreen from '../screens/PerformanceStatsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import GenerateBillsScreen from '../screens/GenerateBillsScreen';
 import InProgressJobsScreen from '../screens/InProgressJobsScreen';
+import HelpSupportScreen from '../screens/HelpSupportScreen';
 
 export type AuthStackParamList = {
   Splash: undefined;
@@ -64,6 +65,7 @@ export type AppStackParamList = {
   PerformanceStats: undefined;
   GenerateBills: undefined;
   Profile: undefined;
+  HelpSupport: undefined;
 };
 
 
@@ -192,6 +194,10 @@ function AppStackNavigator() {
       <AppStack.Screen
         name="Profile"
         component={ProfileScreen}
+      />
+      <AppStack.Screen
+        name="HelpSupport"
+        component={HelpSupportScreen}
       />
     </AppStack.Navigator>
   );

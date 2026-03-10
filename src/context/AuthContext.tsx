@@ -1,7 +1,7 @@
 import React, {createContext, ReactNode, useContext, useState, useEffect} from 'react';
 import {verifyOtp, loginWithPassword} from '../api/auth';
 import {tempLogin, getDriverProfile} from '../api/driver';
-import {clearStoredTokens, setStoredTokens, setStoredSession, getStoredSession, clearStoredSession} from '../api/client';
+import {clearStoredTokens, setStoredTokens, setStoredSession, getStoredSession, clearStoredSession, setSessionInvalidatedCallback, setSessionRefreshedCallback, setCurrentAccessToken} from '../api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {initializeFCM, clearFCMToken} from '../services/notificationService';
 
@@ -47,6 +47,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
         if (storedSession) {
           console.log('[Auth] Restoring session for:', storedSession.driverName);
           setSession(storedSession);
+          setCurrentAccessToken(storedSession.accessToken);
         } else {
           console.log('[Auth] No valid stored session found');
         }
@@ -60,20 +61,20 @@ export function AuthProvider({children}: {children: ReactNode}) {
     initializeSession();
   }, []);
 
-  // Periodically check if session is still valid
+  // Register callbacks so API client can invalidate or refresh session (e.g. on 401 after failed refresh)
   useEffect(() => {
-    const checkSessionInterval = setInterval(async () => {
-      if (session) {
-        const storedSession = await getStoredSession();
-        if (!storedSession) {
-          console.log('[Auth] Session expired or cleared, logging out');
-          setSession(null);
-        }
-      }
-    }, 30000); // Check every 30 seconds
-
-    return () => clearInterval(checkSessionInterval);
-  }, [session]);
+    setSessionInvalidatedCallback(() => {
+      setCurrentAccessToken(null);
+      setSession(null);
+    });
+    setSessionRefreshedCallback((newAccessToken) => {
+      setSession((prev) => (prev ? {...prev, accessToken: newAccessToken} : null));
+    });
+    return () => {
+      setSessionInvalidatedCallback(null);
+      setSessionRefreshedCallback(null);
+    };
+  }, []);
 
   async function loginWithPhoneOtp(phone: string, otp: string) {
     setLoading(true);
@@ -109,6 +110,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
       // Store session with timestamp for persistence
       await setStoredSession(sessionData);
       setSession(sessionData);
+      setCurrentAccessToken(sessionData.accessToken);
 
       console.log('[Auth] Session stored, valid for 1 hour');
       
@@ -159,6 +161,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
       // Store session with timestamp for persistence
       await setStoredSession(sessionData);
       setSession(sessionData);
+      setCurrentAccessToken(sessionData.accessToken);
 
       console.log('[Auth] Session stored, valid for 1 hour');
       
@@ -193,6 +196,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
         // Store session with timestamp for persistence
         await setStoredSession(sessionData);
         setSession(sessionData);
+        setCurrentAccessToken(sessionData.accessToken);
 
         console.log('[Auth] Temp session stored, valid for 1 hour');
         
@@ -234,6 +238,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
   async function logout() {
     console.log('[Auth] Logging out and clearing stored session');
     setSession(null);
+    setCurrentAccessToken(null);
     await clearStoredSession();
     // Clear cached driver profile
     await AsyncStorage.removeItem(DRIVER_PROFILE_KEY);

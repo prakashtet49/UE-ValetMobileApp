@@ -428,14 +428,18 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
   countBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: Platform.OS === 'ios' ? 14 : 12,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
     borderRadius: 12,
+    minWidth: Platform.OS === 'ios' ? 40 : 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countText: {
-    fontSize: 16,
+    fontSize: Platform.OS === 'ios' ? 16 : 15,
     fontWeight: '700',
     color: COLORS.white,
+    textAlign: 'center',
   },
   list: {
     flex: 1,
@@ -502,14 +506,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tagBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: Platform.OS === 'ios' ? 14 : 12,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
     borderRadius: 12,
+    minWidth: Platform.OS === 'ios' ? 60 : 56,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tagText: {
     color: COLORS.white,
-    fontSize: 13,
+    fontSize: Platform.OS === 'ios' ? 14 : 13,
     fontWeight: '600',
+    textAlign: 'center',
   },
   divider: {
     height: 1,
@@ -568,6 +576,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.textPrimary,
     paddingVertical: 0,
+    textAlign: Platform.OS === 'ios' ? 'left' : undefined,
   },
   clearButton: {
     padding: 4,
@@ -621,14 +630,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   checkoutButtonGradient: {
-    paddingVertical: 12,
+    paddingVertical: Platform.OS === 'ios' ? 14 : 12,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: Platform.OS === 'ios' ? 48 : 44,
   },
   checkoutButtonText: {
     color: COLORS.white,
-    fontSize: 16,
+    fontSize: Platform.OS === 'ios' ? 17 : 16,
     fontWeight: '700',
+    textAlign: 'center',
+    width: '100%',
   },
   dialogOverlay: {
     position: 'absolute',
@@ -726,11 +738,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.textSecondary,
+    textAlign: 'center',
+    width: '100%',
   },
   dialogButtonTextConfirm: {
     fontSize: 16,
     fontWeight: '700',
     color: COLORS.white,
+    textAlign: 'center',
+    width: '100%',
   },
   errorDialogButton: {
     width: '100%',

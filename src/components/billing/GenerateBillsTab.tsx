@@ -393,8 +393,8 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
             text: 'Done',
             style: 'cancel',
             onPress: () => {
-              setCompletedJobs(prev => prev.filter(j => j.id !== selectedJob.id));
               setSelectedJob(null);
+              loadCompletedJobs();
             },
           },
           {
@@ -609,9 +609,9 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
           <View style={styles.printerDialogContainer}>
             <Text style={styles.printerDialogTitle}>Select Printer</Text>
             <ScrollView style={styles.printerList}>
-              {printers.map((printer) => (
+              {printers.map((printer, index) => (
                 <TouchableOpacity
-                  key={printer.id}
+                  key={printer.id || printer.address || `printer-${index}`}
                   style={[
                     styles.printerItem,
                     connectedPrinter?.id === printer.id && styles.printerItemSelected,
@@ -787,7 +787,7 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
           <FlatList
             data={filteredJobs}
             renderItem={renderJobItem}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item, index) => item.id || item.bookingId || `job-${index}`}
             contentContainerStyle={styles.listContent}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -829,7 +829,7 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
           <FlatList
             data={filteredJobs}
             renderItem={renderJobItem}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item, index) => item.id || item.bookingId || `job-${index}`}
             contentContainerStyle={styles.listContent}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />

@@ -59,7 +59,7 @@ export async function getStoredSession(): Promise<{
     const currentTime = Date.now();
     const elapsed = currentTime - loginTime;
 
-    // Check if session has expired (more than 1 hour)
+    // Check if session has expired (more than 24 hours)
     if (elapsed > SESSION_DURATION_MS) {
       console.log('[Session] Session expired, clearing stored data');
       await clearStoredSession();
@@ -81,6 +81,61 @@ export async function clearStoredSession() {
     ACCESS_TOKEN_KEY,
     REFRESH_TOKEN_KEY,
   ]);
+}
+
+/** Update only the access token in stored session (keeps timestamp for 24h window). */
+export async function updateStoredSessionAccessToken(accessToken: string) {
+  try {
+    const [[, sessionData]] = await AsyncStorage.multiGet([SESSION_DATA_KEY]);
+    if (!sessionData) return;
+    const parsed = JSON.parse(sessionData) as { accessToken?: string; refreshToken?: string; driverName: string; user?: unknown };
+    parsed.accessToken = accessToken;
+    await AsyncStorage.setItem(SESSION_DATA_KEY, JSON.stringify(parsed));
+  } catch (e) {
+    console.error('[Session] Error updating session access token:', e);
+  }
+}
+
+// Callbacks for AuthContext to stay in sync when session is refreshed or invalidated from API layer
+let sessionInvalidatedCallback: (() => void) | null = null;
+let sessionRefreshedCallback: ((newAccessToken: string) => void) | null = null;
+
+/** In-memory token so the first request after login has the token before AsyncStorage read may see it. */
+let currentAccessToken: string | null = null;
+
+export function setCurrentAccessToken(token: string | null) {
+  currentAccessToken = token;
+}
+
+function getCurrentAccessToken(): string | null {
+  return currentAccessToken;
+}
+
+export function setSessionInvalidatedCallback(cb: (() => void) | null) {
+  sessionInvalidatedCallback = cb;
+}
+
+export function setSessionRefreshedCallback(cb: ((newAccessToken: string) => void) | null) {
+  sessionRefreshedCallback = cb;
+}
+
+/** Call refresh endpoint directly (no auth header) to get new access token. Returns null on failure. */
+async function refreshTokens(): Promise<string | null> {
+  const {refreshToken} = await getStoredTokens();
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${BASE_URL}/auth/refresh-token`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({refreshToken}),
+    });
+    const data = res.ok ? (await res.json()) : undefined;
+    if (res.ok && data?.accessToken) return data.accessToken;
+    return null;
+  } catch (e) {
+    console.error('[API] Token refresh failed:', e);
+    return null;
+  }
 }
 
 export type RequestOptions = {
@@ -107,8 +162,11 @@ async function doFetch(path: string, options: RequestOptions = {}) {
 
   let token: string | null = null;
   if (auth) {
-    const stored = await getStoredTokens();
-    token = stored.accessToken;
+    token = getCurrentAccessToken();
+    if (!token) {
+      const stored = await getStoredTokens();
+      token = stored.accessToken;
+    }
     if (token) {
       finalHeaders.Authorization = `Bearer ${token}`;
     }
@@ -118,7 +176,7 @@ async function doFetch(path: string, options: RequestOptions = {}) {
     url,
     method,
     auth,
-    headers: finalHeaders,
+    ...(auth && {tokenPresent: !!token}),
     body: body instanceof FormData ? 'FormData' : body,
   });
 
@@ -151,11 +209,22 @@ async function doFetch(path: string, options: RequestOptions = {}) {
     });
 
     if (!response.ok) {
-      // Handle 401 Unauthorized - token expired or invalid
-      if (response.status === 401) {
-        console.log('[API] 401 Unauthorized - clearing session');
+      // Handle 401 Unauthorized - try refresh before clearing session
+      if (response.status === 401 && auth) {
+        const newAccessToken = await refreshTokens();
+        if (newAccessToken) {
+          const {refreshToken} = await getStoredTokens();
+          await setStoredTokens(newAccessToken, refreshToken ?? undefined);
+          await updateStoredSessionAccessToken(newAccessToken);
+          currentAccessToken = newAccessToken;
+          sessionRefreshedCallback?.(newAccessToken);
+          console.log('[API] Token refreshed, retrying request');
+          return doFetch(path, options);
+        }
+        console.log('[API] 401 Unauthorized - refresh failed or no refresh token, clearing session');
         await clearStoredSession();
-        // The app will automatically redirect to login via AuthContext
+        sessionInvalidatedCallback?.();
+        currentAccessToken = null;
       }
       throw new ApiException(response.status, json?.message || 'API error', json);
     }
@@ -170,7 +239,12 @@ async function doFetch(path: string, options: RequestOptions = {}) {
       console.error('[API ERROR] Network request failed:', {url, method});
       throw new Error('Cannot connect to server. Please check your internet connection or try again later.');
     }
-    console.error('[API ERROR]', {url, method, error});
+    // 4xx (e.g. 404) are often expected for some endpoints; don't log as ERROR
+    if (error?.status >= 400 && error?.status < 500) {
+      console.log('[API]', error.status, url, error?.message || '');
+    } else {
+      console.error('[API ERROR]', {url, method, error});
+    }
     throw error;
   }
 }

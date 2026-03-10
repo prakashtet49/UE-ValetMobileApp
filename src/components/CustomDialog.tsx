@@ -79,7 +79,7 @@ export default function CustomDialog({
                         <LinearGradient
                           colors={['#76D0E3', '#3156D8']}
                           start={{x: 0, y: 0}}
-                          end={{x: 1, y: 1}}
+                          end={{x: 1, y: 0}}
                           style={styles.buttonGradient}>
                           <Text style={styles.buttonTextPrimary}>{button.text}</Text>
                         </LinearGradient>
@@ -145,31 +145,35 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: 'row',
     gap: 12,
+    alignItems: 'stretch',
   },
   button: {
     flex: 1,
     overflow: 'hidden',
     borderRadius: 12,
+    alignSelf: 'stretch',
   },
   buttonSingle: {
     flex: 1,
+    alignSelf: 'stretch',
   },
   buttonGradient: {
-    paddingVertical: Platform.OS === 'ios' ? 16 : 14,
-    paddingHorizontal: Platform.OS === 'ios' ? 24 : 20,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
-    minHeight: Platform.OS === 'ios' ? 48 : 44,
+    minHeight: 44,
   },
   buttonSolid: {
-    paddingVertical: Platform.OS === 'ios' ? 16 : 14,
-    paddingHorizontal: Platform.OS === 'ios' ? 24 : 20,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
     backgroundColor: COLORS.backgroundLight,
-    minHeight: Platform.OS === 'ios' ? 48 : 44,
+    minHeight: 44,
+    width: '100%',
   },
   buttonCancel: {
     backgroundColor: COLORS.backgroundLight,
@@ -183,17 +187,30 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    alignSelf: 'center',
   },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.textPrimary,
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   buttonTextCancel: {
     color: COLORS.textSecondary,
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   buttonTextDestructive: {
     color: COLORS.white,
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
 });
 

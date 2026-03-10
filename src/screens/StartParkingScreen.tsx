@@ -233,7 +233,7 @@ export default function StartParkingScreen() {
         mediaType: 'video',
         cameraType: 'back',
         videoQuality: 'medium',
-        durationLimit: 30, // 30 seconds max
+        durationLimit: 120, // 2 minutes max
       });
 
       if (result.didCancel) {
@@ -905,6 +905,7 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(16),
     fontWeight: '700',
     color: COLORS.white,
+    textAlign: 'center',
   },
   input: {
     flex: 1,
@@ -913,6 +914,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: getResponsiveSpacing(16),
     fontSize: getResponsiveFontSize(16),
     color: COLORS.textPrimary,
+    textAlign: Platform.OS === 'ios' ? 'left' : undefined,
     ...SHADOWS.small,
   },
   inputFullRadius: {
@@ -927,6 +929,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: getResponsiveSpacing(16),
     fontSize: getResponsiveFontSize(16),
     color: COLORS.textPrimary,
+    textAlign: Platform.OS === 'ios' ? 'left' : undefined,
     ...SHADOWS.small,
   },
   inputDisabled: {

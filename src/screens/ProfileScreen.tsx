@@ -9,6 +9,7 @@ import {
   View,
   Alert,
   Platform,
+  ScrollView,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {useNavigation} from '@react-navigation/native';
@@ -171,7 +172,10 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <View style={styles.content}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}>
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatarContainer}>
@@ -235,6 +239,15 @@ export default function ProfileScreen() {
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
           <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => navigation.navigate('HelpSupport')}>
+            <View style={styles.actionIconContainer}>
+              <Text style={styles.helpIconText}>?</Text>
+            </View>
+            <Text style={styles.actionText}>Help & Support</Text>
+            <Text style={styles.actionArrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.actionButton, styles.logoutButton]}
             onPress={handleLogout}>
             <View style={[styles.actionIconContainer, styles.logoutIconContainer]}>
@@ -249,7 +262,7 @@ export default function ProfileScreen() {
         <View style={styles.versionContainer}>
           <Text style={styles.versionText}>Version {appConfig.version}</Text>
         </View>
-      </View>
+      </ScrollView>
 
       {/* Dialog */}
       <CustomDialog
@@ -297,6 +310,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: COLORS.textSecondary,
     fontSize: 16,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: 20,
+    paddingBottom: 40,
   },
   content: {
     flex: 1,
@@ -398,6 +418,11 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: COLORS.textSecondary,
   },
+  helpIconText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.gradientEnd,
+  },
   logoutButton: {
     borderWidth: 1,
     borderColor: '#FEE2E2',
@@ -492,7 +517,6 @@ const styles = StyleSheet.create({
   versionContainer: {
     alignItems: 'center',
     paddingVertical: 20,
-    marginTop: 'auto',
   },
   versionText: {
     fontSize: 12,
