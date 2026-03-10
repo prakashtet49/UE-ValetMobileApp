@@ -1,5 +1,6 @@
 # Staging CI/CD: On push of tag "staging", "staging-patch", "staging-minor", "staging-major"
-# -> bump version accordingly, build Android release, deploy to Firebase App Distribution
+# -> build Android release from the tagged commit (any branch), deploy to Firebase App Distribution
+# Version is taken from the branch (no bump script required).
 name: Staging Build and Deploy
 
 on:
@@ -23,36 +24,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Determine bump type from tag
-        id: bump
-        run: |
-          TAG="${{ github.ref_name }}"
-          case "$TAG" in
-            staging-major) echo "type=major" >> $GITHUB_OUTPUT ;;
-            staging-minor) echo "type=minor" >> $GITHUB_OUTPUT ;;
-            staging-patch|staging) echo "type=patch" >> $GITHUB_OUTPUT ;;
-            *) echo "type=patch" >> $GITHUB_OUTPUT ;;
-          esac
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-
-      - name: Bump version (${{ steps.bump.outputs.type }})
-        run: node scripts/bump-version.js ${{ steps.bump.outputs.type }}
-
-      - name: Commit and push version bump
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add app.json package.json android/app/build.gradle
-          git diff --staged --quiet || git commit -m "chore: bump version (${{ steps.bump.outputs.type }}) for staging release [skip ci]"
-          git push origin main || true
 
       - name: Install dependencies
         run: npm ci
