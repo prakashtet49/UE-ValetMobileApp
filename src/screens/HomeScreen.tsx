@@ -28,6 +28,7 @@ import {getClientLocations, assignLocation, type Location} from '../api/driver';
 import type {AppStackParamList} from '../navigation/AppNavigator';
 import GradientButton from '../components/GradientButton';
 import CustomDialog from '../components/CustomDialog';
+import BillingPrinterConnection from '../components/billing/BillingPrinterConnection';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {useValetRealtime} from '../hooks/useValetRealtime';
 import {testNotification} from '../services/notificationService';
@@ -907,7 +908,11 @@ export default function HomeScreen() {
           <Image source={urbaneaseLogo} style={styles.headerLogo} />
         </View>
         <View style={styles.headerRight}>
-          
+          {session?.user?.role === 'valet_billing' && (
+            <View style={styles.headerPrinterWrap}>
+              <BillingPrinterConnection variant="header" />
+            </View>
+          )}
           <TouchableOpacity style={styles.iconButton} onPress={handleProfile}>
             <LinearGradient
               colors={['#76D0E3', '#3156D8']}
@@ -1347,7 +1352,13 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: moderateScale(12),
+    gap: moderateScale(4),
+  },
+  /** Tighter padding toward profile so printer sits closer to avatar */
+  headerPrinterWrap: {
+    paddingVertical: moderateScale(4),
+    paddingLeft: moderateScale(4),
+    paddingRight: 0,
   },
   iconButton: {
     padding: moderateScale(4),

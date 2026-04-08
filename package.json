@@ -6,6 +6,7 @@
     "postinstall": "node scripts/patch-react-native-image-marker.js",
     "android": "react-native run-android",
     "ios": "react-native run-ios",
+    "ios:open": "open ios/valletMobileApp.xcworkspace",
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest"

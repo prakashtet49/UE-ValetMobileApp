@@ -64,8 +64,13 @@ jobs:
             exit 1
           fi
           VERSION=$(node -p "require('./app.json').version")
-          firebase appdistribution:distribute \
+          if firebase appdistribution:distribute \
             android/app/build/outputs/apk/release/app-release.apk \
             --app ${{ env.FIREBASE_APP_ID_ANDROID }} \
             --groups "internal-testers" \
-            --release-notes "Staging build v${VERSION} - $(date -u +%Y-%m-%dT%H:%MZ)"
+            --release-notes "Staging build v${VERSION} - $(date -u +%Y-%m-%dT%H:%MZ)"; then
+            echo "Deploy and distribute succeeded."
+          else
+            echo "::warning::Distribution to group 'internal-testers' failed (create that group in Firebase Console → App Distribution → Testers and groups). Release was uploaded - check logs above for the share link."
+            exit 0
+          fi

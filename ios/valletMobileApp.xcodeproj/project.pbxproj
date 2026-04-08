@@ -15,6 +15,23 @@
 		FB8052855BE86D41AC2AE66A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A0C0C0A01EC00100D08A0005 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A0C0C0A01EC00100D08A0001 /* Pods.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = F3401C5BD09C43C8ABA5DD421923F704;
+			remoteInfo = "Pods-valletMobileApp";
+		};
+		A0C0C0A01EC00100D08A0006 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A0C0C0A01EC00100D08A0001 /* Pods.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = 6439E6E22B72E9BDDA2DD2C523B80400;
+			remoteInfo = "Pods-valletMobileApp";
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		0FBBFE57813D3CDE993A65B8 /* Pods-valletMobileApp.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-valletMobileApp.release.xcconfig"; path = "Target Support Files/Pods-valletMobileApp/Pods-valletMobileApp.release.xcconfig"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* valletMobileApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = valletMobileApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -25,6 +42,7 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = valletMobileApp/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = valletMobileApp/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		9E0634BFB7697DC19E9E6FE8 /* Pods-valletMobileApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-valletMobileApp.debug.xcconfig"; path = "Target Support Files/Pods-valletMobileApp/Pods-valletMobileApp.debug.xcconfig"; sourceTree = "<group>"; };
+		A0C0C0A01EC00100D08A0001 /* Pods.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = Pods.xcodeproj; path = Pods/Pods.xcodeproj; sourceTree = "<group>"; };
 		BB1234567890ABCDEF123456 /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "valletMobileApp/GoogleService-Info.plist"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -66,6 +84,7 @@
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
 			isa = PBXGroup;
 			children = (
+				A0C0C0A01EC00100D08A0001 /* Pods.xcodeproj */,
 			);
 			name = Libraries;
 			sourceTree = "<group>";
@@ -75,6 +94,7 @@
 			children = (
 				13B07FAE1A68108700A75B9A /* valletMobileApp */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
+				A0C0C0A01EC00100D08A0003 /* Pods.xcodeproj Products */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
@@ -90,6 +110,14 @@
 				13B07F961A680F5B00A75B9A /* valletMobileApp.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A0C0C0A01EC00100D08A0003 /* Pods.xcodeproj Products */ = {
+			isa = PBXGroup;
+			children = (
+				A0C0C0A01EC00100D08A0004 /* Pods_valletMobileApp.framework */,
+			);
+			name = "Pods.xcodeproj Products";
 			sourceTree = "<group>";
 		};
 		BBD78D7AC51CEA395F1C20DB /* Pods */ = {
@@ -113,6 +141,7 @@
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
+				E801B2C3D45E6F7890AB1CDE /* Write dev Metro host (ip.txt) */,
 				DAE01654C4DBC4F667DCF98D /* [CP] Embed Pods Frameworks */,
 				26AEE6B36D56F1203AE66F10 /* [CP] Copy Pods Resources */,
 				66A1C32C6D23D6CF5C1370E8 /* [CP-User] [RNFB] Core Configuration */,
@@ -120,6 +149,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				A0C0C0A01EC00100D08A0007 /* PBXTargetDependency */,
 			);
 			name = valletMobileApp;
 			productName = valletMobileApp;
@@ -150,12 +180,28 @@
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = A0C0C0A01EC00100D08A0003 /* Pods.xcodeproj Products */;
+					ProjectRef = A0C0C0A01EC00100D08A0001 /* Pods.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* valletMobileApp */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXReferenceProxy section */
+		A0C0C0A01EC00100D08A0004 /* Pods_valletMobileApp.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = Pods_valletMobileApp.framework;
+			remoteRef = A0C0C0A01EC00100D08A0005 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+/* End PBXReferenceProxy section */
 
 /* Begin PBXResourcesBuildPhase section */
 		13B07F8E1A680F5B00A75B9A /* Resources */ = {
@@ -187,6 +233,19 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -e\n\nWITH_ENVIRONMENT=\"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\nREACT_NATIVE_XCODE=\"$REACT_NATIVE_PATH/scripts/react-native-xcode.sh\"\n\n/bin/sh -c \"$WITH_ENVIRONMENT $REACT_NATIVE_XCODE\"\n";
+		};
+		E801B2C3D45E6F7890AB1CDE /* Write dev Metro host (ip.txt) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			name = "Write dev Metro host (ip.txt)";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# react-native-xcode.sh only writes ip.txt for Debug *device* builds; simulator Debug skips it.\n# Embed Mac LAN IP so the app can reach Metro when loopback is unreliable.\nif [[ \"$CONFIGURATION\" != *Debug* ]] || [[ \"$PLATFORM_NAME\" != *simulator* ]]; then\n  exit 0\nfi\nDEST=\"$CONFIGURATION_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$DEST\"\nIP=\"\"\nfor num in 0 1 2 3 4 5 6 7 8; do\n  IP=$(ipconfig getifaddr en${num} 2>/dev/null || true)\n  [ -n \"$IP\" ] && break\ndone\nif [ -z \"$IP\" ]; then\n  IP=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v ' 127.' | grep -v ' 169.254.' | awk '{print $2}' | head -1)\nfi\n[ -z \"$IP\" ] && IP=\"127.0.0.1\"\necho \"$IP\" > \"$DEST/ip.txt\"\n";
+			showEnvVarsInLog = 0;
 		};
 		241EEA860BD42868ED06F3E4 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -269,6 +328,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A0C0C0A01EC00100D08A0007 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = "Pods-valletMobileApp";
+			targetProxy = A0C0C0A01EC00100D08A0006 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {

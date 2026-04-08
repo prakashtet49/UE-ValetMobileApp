@@ -17,6 +17,7 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
 import {getActiveJobs, type ActiveJob} from '../../api/jobs';
 import {checkoutParking} from '../../api/parking';
+import SettlementReceiptModal from './SettlementReceiptModal';
 import {COLORS, SHADOWS} from '../../constants/theme';
 import type {AppStackParamList} from '../../navigation/AppNavigator';
 import {logError, getUserFriendlyMessage} from '../../utils/errorHandler';
@@ -46,10 +47,11 @@ export default function ActiveJobsTab() {
     visible: boolean;
     message: string;
   }>({visible: false, message: ''});
-  const [successDialog, setSuccessDialog] = useState<{
-    visible: boolean;
-    message: string;
-  }>({visible: false, message: ''});
+  const [postCheckoutReceipt, setPostCheckoutReceipt] = useState<{
+    bookingId: string;
+    vehicleNumber: string;
+  } | null>(null);
+  const [showSettlementDialog, setShowSettlementDialog] = useState(false);
 
   async function load() {
     try {
@@ -110,19 +112,20 @@ export default function ActiveJobsTab() {
     try {
       console.log('Checking out job:', checkoutDialog.job.id);
       
-      const response = await checkoutParking({
+      await checkoutParking({
         bookingId: checkoutDialog.job.id,
       });
-      
-      console.log('Checkout successful:', response);
-      
+
+      console.log('Checkout successful');
+
+      const checkedOut = checkoutDialog.job;
       setCheckoutDialog({visible: false, job: null});
-      
-      const successMessage = response?.message || 'Checkout successful.';
-      setSuccessDialog({
-        visible: true,
-        message: successMessage,
+
+      setPostCheckoutReceipt({
+        bookingId: checkedOut.id,
+        vehicleNumber: checkedOut.vehicleNumber,
       });
+      setShowSettlementDialog(true);
     } catch (error: any) {
       console.error('Checkout failed:', error);
       setCheckoutDialog({visible: false, job: null});
@@ -166,13 +169,17 @@ export default function ActiveJobsTab() {
             <Image source={carParkingIcon} style={styles.vehicleIcon} />
             <Text style={styles.vehicle}>{item.vehicleNumber}</Text>
           </View>
-          <LinearGradient
-            colors={['#76D0E3', '#3156D8']}
-            start={{x: 0, y: 0}}
-            end={{x: 1, y: 1}}
-            style={styles.tagBadge}>
-            <Text style={styles.tagText}>{item.tagNumber}</Text>
-          </LinearGradient>
+          <View style={styles.tagBadgeOuter}>
+            <LinearGradient
+              colors={[COLORS.gradientStart, COLORS.gradientEnd]}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={StyleSheet.absoluteFill}
+            />
+            <Text style={styles.tagText} numberOfLines={1}>
+              {item.tagNumber}
+            </Text>
+          </View>
         </View>
         
         <View style={styles.divider} />
@@ -203,14 +210,19 @@ export default function ActiveJobsTab() {
         
         <TouchableOpacity
           onPress={() => handleCheckoutPress(item)}
-          style={styles.checkoutButton}>
-          <LinearGradient
-            colors={['#EF4444', '#DC2626']}
-            start={{x: 0, y: 0}}
-            end={{x: 1, y: 1}}
-            style={styles.checkoutButtonGradient}>
-            <Text style={styles.checkoutButtonText}>CHECKOUT</Text>
-          </LinearGradient>
+          style={styles.checkoutButton}
+          activeOpacity={0.85}>
+          <View style={styles.checkoutButtonClip}>
+            <LinearGradient
+              colors={[COLORS.error, '#DC2626']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.checkoutButtonContent} pointerEvents="none">
+              <Text style={styles.checkoutButtonText}>CHECKOUT</Text>
+            </View>
+          </View>
         </TouchableOpacity>
       </View>
     );
@@ -248,13 +260,17 @@ export default function ActiveJobsTab() {
           onPress={handleSearch}
           style={styles.searchButton}
           disabled={!searchQuery.trim()}>
-          <LinearGradient
-            colors={['#76D0E3', '#3156D8']}
-            start={{x: 0, y: 0}}
-            end={{x: 1, y: 1}}
-            style={styles.searchButtonGradient}>
-            <Image source={arrowRightIcon} style={styles.searchIcon} />
-          </LinearGradient>
+          <View style={styles.searchButtonInner}>
+            <LinearGradient
+              colors={[COLORS.gradientStart, COLORS.gradientEnd]}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.searchIconWrap} pointerEvents="none">
+              <Image source={arrowRightIcon} style={styles.searchIcon} />
+            </View>
+          </View>
         </TouchableOpacity>
       </View>
       
@@ -353,29 +369,22 @@ export default function ActiveJobsTab() {
         </View>
       )}
 
-      {successDialog.visible && (
-        <View style={styles.dialogOverlay}>
-          <View style={styles.dialogContainer}>
-            <Text style={styles.dialogTitle}>Checkout Successful</Text>
-            <Text style={styles.dialogMessage}>{successDialog.message}</Text>
-            <TouchableOpacity
-              onPress={() => {
-                setSuccessDialog({visible: false, message: ''});
-                load();
-                navigation.navigate('Home');
-              }}
-              style={styles.errorDialogButton}>
-              <LinearGradient
-                colors={['#76D0E3', '#3156D8']}
-                start={{x: 0, y: 0}}
-                end={{x: 1, y: 1}}
-                style={styles.dialogButtonGradient}>
-                <Text style={styles.dialogButtonTextConfirm}>OK</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      <SettlementReceiptModal
+        visible={showSettlementDialog}
+        bookingId={postCheckoutReceipt?.bookingId ?? null}
+        vehicleNumber={postCheckoutReceipt?.vehicleNumber ?? ''}
+        onCancel={() => {
+          setShowSettlementDialog(false);
+          setPostCheckoutReceipt(null);
+          load();
+        }}
+        onHiddenAfterPrintSuccess={() => setShowSettlementDialog(false)}
+        onPrintedAndFinished={() => {
+          setPostCheckoutReceipt(null);
+          load();
+          navigation.navigate('Home');
+        }}
+      />
     </View>
   );
 }
@@ -426,6 +435,7 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(24),
     padding: getResponsiveSpacing(20),
     marginBottom: verticalScale(16),
+    overflow: 'visible',
     ...SHADOWS.medium,
   },
   itemHeader: {
@@ -448,19 +458,24 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(20),
     fontWeight: '700',
   },
-  tagBadge: {
-    paddingHorizontal: Platform.OS === 'ios' ? getResponsiveSpacing(14) : getResponsiveSpacing(12),
-    paddingVertical: Platform.OS === 'ios' ? verticalScale(8) : verticalScale(6),
+  tagBadgeOuter: {
+    position: 'relative',
+    height: verticalScale(36),
+    minWidth: moderateScale(56),
+    maxWidth: '42%',
+    paddingHorizontal: getResponsiveSpacing(12),
     borderRadius: moderateScale(12),
-    minWidth: Platform.OS === 'ios' ? moderateScale(60) : moderateScale(56),
-    alignItems: 'center',
+    overflow: 'hidden',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   tagText: {
     color: COLORS.white,
-    fontSize: Platform.OS === 'ios' ? getResponsiveFontSize(14) : getResponsiveFontSize(13),
+    fontSize: getResponsiveFontSize(13),
     fontWeight: '600',
     textAlign: 'center',
+    includeFontPadding: false,
+    zIndex: 1,
   },
   divider: {
     height: 1,
@@ -536,11 +551,18 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(16),
     overflow: 'hidden',
   },
-  searchButtonGradient: {
+  searchButtonInner: {
     width: '100%',
     height: '100%',
+    borderRadius: moderateScale(16),
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  searchIconWrap: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1,
   },
   searchIcon: {
     width: moderateScale(20),
@@ -569,21 +591,27 @@ const styles = StyleSheet.create({
   },
   checkoutButton: {
     marginTop: verticalScale(16),
-    borderRadius: moderateScale(12),
-    overflow: 'hidden',
+    borderRadius: moderateScale(26),
   },
-  checkoutButtonGradient: {
-    paddingVertical: Platform.OS === 'ios' ? verticalScale(14) : verticalScale(12),
-    alignItems: 'center',
+  checkoutButtonClip: {
+    position: 'relative',
+    height: moderateScale(52),
+    borderRadius: moderateScale(26),
+    overflow: 'hidden',
+    width: '100%',
+  },
+  checkoutButtonContent: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
-    minHeight: Platform.OS === 'ios' ? verticalScale(48) : verticalScale(44),
+    alignItems: 'center',
+    zIndex: 1,
   },
   checkoutButtonText: {
     color: COLORS.white,
     fontSize: Platform.OS === 'ios' ? getResponsiveFontSize(17) : getResponsiveFontSize(16),
     fontWeight: '700',
     textAlign: 'center',
-    width: '100%',
+    includeFontPadding: false,
   },
   dialogOverlay: {
     position: 'absolute',

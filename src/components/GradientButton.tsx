@@ -1,5 +1,5 @@
 import React from 'react';
-import {TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, Platform} from 'react-native';
+import {TouchableOpacity, Text, View, StyleSheet, ViewStyle, TextStyle} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 
 type GradientButtonProps = {
@@ -28,7 +28,9 @@ const GradientButton: React.FC<GradientButtonProps> = ({
         start={{x: 0, y: 0}}
         end={{x: 1, y: 0}}
         style={[styles.gradient, disabled && styles.disabled]}>
-        <Text style={[styles.text, textStyle]}>{children}</Text>
+        <View style={styles.labelWrap} pointerEvents="none">
+          <Text style={[styles.text, textStyle]}>{children}</Text>
+        </View>
       </LinearGradient>
     </TouchableOpacity>
   );
@@ -37,17 +39,24 @@ const GradientButton: React.FC<GradientButtonProps> = ({
 const styles = StyleSheet.create({
   buttonContainer: {
     width: '100%',
+    minHeight: 52,
     borderRadius: 26,
     overflow: 'hidden',
+    justifyContent: 'center',
   },
   gradient: {
     height: 52,
     borderRadius: 26,
     width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 0,
+    justifyContent: 'center',
+    alignItems: 'stretch',
+  },
+  labelWrap: {
+    flex: 1,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'stretch',
   },
   text: {
     color: '#fff',
@@ -55,9 +64,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0,
     textAlign: 'center',
-    includeFontPadding: false,
     textAlignVertical: 'center',
-    alignSelf: 'center',
+    includeFontPadding: false,
+    lineHeight: 22,
+    width: '100%',
   },
   disabled: {
     opacity: 0.5,

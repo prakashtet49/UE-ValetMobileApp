@@ -1,3 +1,4 @@
+# In Xcode, open valletMobileApp.xcworkspace (not .xcodeproj) so CocoaPods targets build first.
 # Resolve react_native_pods.rb with node to allow for hoisting
 require Pod::Executable.execute_command('node', ['-p',
   'require.resolve(
@@ -27,15 +28,14 @@ target 'valletMobileApp' do
       # :ccache_enabled => true
     )
     
+    # Do not set BUILD_LIBRARY_FOR_DISTRIBUTION on all pods: it breaks React Native's
+    # static frameworks (TurboModules like PlatformConstants may not register correctly).
     installer.pods_project.targets.each do |target|
+      next unless target.name == 'GoogleUtilities'
+
       target.build_configurations.each do |config|
         config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
-      end
-      
-      if target.name == 'GoogleUtilities'
-        target.build_configurations.each do |config|
-          config.build_settings['DEFINES_MODULE'] = 'YES'
-        end
+        config.build_settings['DEFINES_MODULE'] = 'YES'
       end
     end
   end

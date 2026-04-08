@@ -8,8 +8,6 @@ import {
   ScrollView,
   RefreshControl,
   FlatList,
-  Alert,
-  PermissionsAndroid,
   Platform,
   TextInput,
   Modal,
@@ -17,11 +15,12 @@ import {
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../../utils/responsive';
 import {useFocusEffect} from '@react-navigation/native';
 import {getCompletedJobs, getCompletedJobsPending, type CompletedJob} from '../../api/jobs';
-import {printReceipt, calculateReceipt, printReceiptWithPayment, getTotalSummaryShifts, type TotalSummaryShiftsResponse} from '../../api/receipt';
+import {getTotalSummaryShifts, type TotalSummaryShiftsResponse} from '../../api/receipt';
 import {COLORS, SHADOWS} from '../../constants/theme';
 import {logError, getUserFriendlyMessage} from '../../utils/errorHandler';
-import printerService, {type PrinterDevice} from '../../services/printerService';
 import CustomDialog from '../CustomDialog';
+import SettlementReceiptModal from './SettlementReceiptModal';
+import BillingPrinterConnection from './BillingPrinterConnection';
 
 type GenerateBillsTabProps = {
   onPrinterButtonRender?: (button: React.ReactNode) => void;
@@ -32,10 +31,6 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
   const [completedJobs, setCompletedJobs] = useState<CompletedJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [printers, setPrinters] = useState<PrinterDevice[]>([]);
-  const [connectedPrinter, setConnectedPrinter] = useState<PrinterDevice | null>(null);
-  const [showPrinterDialog, setShowPrinterDialog] = useState(false);
-  const [scanningPrinters, setScanningPrinters] = useState(false);
   const [printingJob, setPrintingJob] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [dialog, setDialog] = useState<{
@@ -46,11 +41,6 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
   }>({visible: false, title: '', message: '', buttons: []});
   const [showSettlementDialog, setShowSettlementDialog] = useState(false);
   const [selectedJob, setSelectedJob] = useState<CompletedJob | null>(null);
-  const [calculatedAmount, setCalculatedAmount] = useState<number | null>(null);
-  const [settlementAmount, setSettlementAmount] = useState('');
-  const [calculatingAmount, setCalculatingAmount] = useState(false);
-  const [printingFromDialog, setPrintingFromDialog] = useState(false);
-  const [selectedPaymentMode, setSelectedPaymentMode] = useState<'Cash' | 'Card' | 'UPI' | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'summary'>('all');
   const [summaryData, setSummaryData] = useState<TotalSummaryShiftsResponse | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -59,10 +49,6 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
   const [toDate, setToDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState<'from' | 'to' | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
-
-  useEffect(() => {
-    autoConnectPrinter();
-  }, []);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -79,21 +65,6 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
-
-  async function autoConnectPrinter() {
-    try {
-      const reconnected = await printerService.autoReconnect();
-      if (reconnected) {
-        const printer = printerService.getConnectedPrinter();
-        if (printer) {
-          setConnectedPrinter(printer);
-          console.log('[GenerateBillsTab] Auto-reconnected to printer:', printer.name);
-        }
-      }
-    } catch (error) {
-      console.error('[GenerateBillsTab] Auto-reconnect failed:', error);
-    }
-  }
 
   async function loadCompletedJobs() {
     try {
@@ -270,147 +241,9 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
     }
   };
 
-  const requestBluetoothPermissions = async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.requestMultiple([
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        ]);
-
-        return (
-          granted['android.permission.BLUETOOTH_SCAN'] === PermissionsAndroid.RESULTS.GRANTED &&
-          granted['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.GRANTED &&
-          granted['android.permission.ACCESS_FINE_LOCATION'] === PermissionsAndroid.RESULTS.GRANTED
-        );
-      } catch (err) {
-        console.warn(err);
-        return false;
-      }
-    }
-    return true;
-  };
-
-  const handleScanPrinters = async () => {
-    const hasPermissions = await requestBluetoothPermissions();
-    if (!hasPermissions) {
-      Alert.alert(
-        'Permissions Required',
-        'Bluetooth and Location permissions are required to scan for printers.',
-      );
-      return;
-    }
-
-    setScanningPrinters(true);
-    try {
-      const devices = await printerService.scanForPrinters();
-      setPrinters(devices);
-      setShowPrinterDialog(true);
-    } catch (error) {
-      logError('GenerateBillsTab.handleScanPrinters', error);
-      Alert.alert('Scan Failed', getUserFriendlyMessage(error));
-    } finally {
-      setScanningPrinters(false);
-    }
-  };
-
-  const handleConnectPrinter = async (printer: PrinterDevice) => {
-    try {
-      await printerService.connectToPrinter(printer);
-      setConnectedPrinter(printer);
-      setShowPrinterDialog(false);
-      Alert.alert('Success', `Connected to ${printer.name}`);
-    } catch (error) {
-      logError('GenerateBillsTab.handleConnectPrinter', error);
-      Alert.alert('Connection Failed', getUserFriendlyMessage(error));
-    }
-  };
-
-  const handleGenerateBill = async (job: CompletedJob) => {
+  const handleGenerateBill = (job: CompletedJob) => {
     setSelectedJob(job);
-    setCalculatedAmount(null);
-    setSettlementAmount('');
-    setSelectedPaymentMode(null);
     setShowSettlementDialog(true);
-    
-    setCalculatingAmount(true);
-    try {
-      const response = await calculateReceipt(job.bookingId);
-      setCalculatedAmount(response.charges);
-      setSettlementAmount(response.charges.toString());
-    } catch (error) {
-      logError('GenerateBillsTab.handleGenerateBill', error);
-      Alert.alert('Calculation Failed', getUserFriendlyMessage(error));
-      setShowSettlementDialog(false);
-    } finally {
-      setCalculatingAmount(false);
-    }
-  };
-
-  const handlePrintFromDialog = async () => {
-    if (!selectedJob || !settlementAmount) {
-      Alert.alert('Invalid Input', 'Please enter a settlement amount');
-      return;
-    }
-
-    if (!selectedPaymentMode) {
-      Alert.alert('Payment Mode Required', 'Please select a payment mode (Cash, Card, or UPI)');
-      return;
-    }
-
-    const overrideAmount = parseFloat(settlementAmount);
-    if (isNaN(overrideAmount) || overrideAmount < 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount');
-      return;
-    }
-
-    setPrintingFromDialog(true);
-    try {
-      if (!connectedPrinter) {
-        Alert.alert(
-          'Printer Not Connected',
-          'Please connect to a printer first using the printer icon in the header.',
-        );
-        return;
-      }
-
-      const response = await printReceiptWithPayment(
-        selectedJob.bookingId,
-        selectedJob.vehicleNumber,
-        overrideAmount,
-        selectedPaymentMode
-      );
-
-      await printerService.printRawData(response.printBuffer);
-
-      setShowSettlementDialog(false);
-      Alert.alert(
-        'Receipt Printed Successfully',
-        `Vehicle: ${selectedJob.vehicleNumber}\nCharges: ₹${response.receiptData.charges}\nSettlement: ₹${response.receiptData.overrideAmount}\nDuration: ${response.receiptData.duration}`,
-        [
-          {
-            text: 'Done',
-            style: 'cancel',
-            onPress: () => {
-              setSelectedJob(null);
-              loadCompletedJobs();
-            },
-          },
-          {
-            text: 'Reprint',
-            onPress: () => {
-              handlePrintFromDialog();
-            },
-          },
-        ],
-      );
-    } catch (error) {
-      logError('GenerateBillsTab.handlePrintFromDialog', error);
-      Alert.alert('Print Failed', getUserFriendlyMessage(error));
-    } finally {
-      setPrintingFromDialog(false);
-    }
   };
 
   const tabFilteredJobs = useMemo(() => {
@@ -489,53 +322,9 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
     </View>
   );
 
-  // Update parent with printer button if callback provided
-  React.useEffect(() => {
-    if (onPrinterButtonRender) {
-      const printerButtonElement = (
-        <TouchableOpacity 
-          style={styles.printerButton} 
-          onPress={handleScanPrinters}
-          disabled={scanningPrinters}>
-          {scanningPrinters ? (
-            <ActivityIndicator size="small" color={COLORS.gradientEnd} />
-          ) : (
-            <View style={styles.printerIconContainer}>
-              <Text style={styles.printerIcon}>🖨️</Text>
-              {connectedPrinter && <View style={styles.connectedDot} />}
-            </View>
-          )}
-        </TouchableOpacity>
-      );
-      onPrinterButtonRender(printerButtonElement);
-    }
-  }, [connectedPrinter, scanningPrinters, onPrinterButtonRender]);
-
-  // Create printer button element for local rendering
-  const printerButtonElement = (
-    <TouchableOpacity 
-      style={styles.printerButton} 
-      onPress={handleScanPrinters}
-      disabled={scanningPrinters}>
-      {scanningPrinters ? (
-        <ActivityIndicator size="small" color={COLORS.gradientEnd} />
-      ) : (
-        <View style={styles.printerIconContainer}>
-          <Text style={styles.printerIcon}>🖨️</Text>
-          {connectedPrinter && <View style={styles.connectedDot} />}
-        </View>
-      )}
-    </TouchableOpacity>
-  );
-
   return (
     <View style={styles.container}>
-      {/* Show printer button here if not rendering to parent */}
-      {!onPrinterButtonRender && (
-        <View style={styles.printerContainer}>
-          {printerButtonElement}
-        </View>
-      )}
+      <BillingPrinterConnection onPrinterButtonRender={onPrinterButtonRender} />
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
@@ -588,54 +377,6 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
         </TouchableOpacity>
       </View>
 
-      {/* Printer Selection Dialog */}
-      {showPrinterDialog && printers.length === 0 && (
-        <CustomDialog
-          visible={showPrinterDialog}
-          title="No Printers Found"
-          message="No paired Bluetooth devices found. Please pair your printer in Bluetooth settings first."
-          buttons={[
-            {
-              text: 'OK',
-              onPress: () => setShowPrinterDialog(false),
-            },
-          ]}
-          onDismiss={() => setShowPrinterDialog(false)}
-        />
-      )}
-
-      {showPrinterDialog && printers.length > 0 && (
-        <View style={styles.printerDialogOverlay}>
-          <View style={styles.printerDialogContainer}>
-            <Text style={styles.printerDialogTitle}>Select Printer</Text>
-            <ScrollView style={styles.printerList}>
-              {printers.map((printer, index) => (
-                <TouchableOpacity
-                  key={printer.id || printer.address || `printer-${index}`}
-                  style={[
-                    styles.printerItem,
-                    connectedPrinter?.id === printer.id && styles.printerItemSelected,
-                  ]}
-                  onPress={() => handleConnectPrinter(printer)}>
-                  <View style={styles.printerItemContent}>
-                    <Text style={styles.printerName}>{printer.name}</Text>
-                    <Text style={styles.printerAddress}>{printer.address}</Text>
-                  </View>
-                  {connectedPrinter?.id === printer.id && (
-                    <Text style={styles.connectedBadge}>✓ Connected</Text>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity
-              style={styles.printerDialogButton}
-              onPress={() => setShowPrinterDialog(false)}>
-              <Text style={styles.printerDialogButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
       {/* Custom Dialog */}
       <CustomDialog
         visible={dialog.visible}
@@ -645,115 +386,20 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
         onDismiss={() => setDialog({...dialog, visible: false})}
       />
 
-      {/* Settlement Dialog */}
-      <Modal
+      <SettlementReceiptModal
         visible={showSettlementDialog}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowSettlementDialog(false)}>
-        <View style={styles.settlementDialogOverlay}>
-          <View style={styles.settlementDialogContainer}>
-            <Text style={styles.settlementDialogTitle}>Settlement Amount</Text>
-            
-            {calculatingAmount ? (
-              <View style={styles.calculatingContainer}>
-                <ActivityIndicator size="large" color={COLORS.gradientEnd} />
-                <Text style={styles.calculatingText}>Calculating amount...</Text>
-              </View>
-            ) : (
-              <>
-                <View style={styles.amountDisplayContainer}>
-                  <Text style={styles.amountLabel}>Calculated Amount:</Text>
-                  <Text style={styles.amountDisplay}>₹{calculatedAmount?.toFixed(2) || '0.00'}</Text>
-                </View>
-
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Settlement Amount:</Text>
-                  <TextInput
-                    style={styles.settlementInput}
-                    value={settlementAmount}
-                    onChangeText={setSettlementAmount}
-                    keyboardType="numeric"
-                    placeholder="Enter amount"
-                    placeholderTextColor={COLORS.textSecondary}
-                  />
-                </View>
-
-                {/* Payment Mode Selection */}
-                <View style={styles.paymentModeContainer}>
-                  <Text style={styles.paymentModeLabel}>Select Payment Mode:</Text>
-                  <View style={styles.paymentModeCards}>
-                    <TouchableOpacity
-                      style={[
-                        styles.paymentModeCard,
-                        selectedPaymentMode === 'Cash' && styles.paymentModeCardSelected,
-                      ]}
-                      onPress={() => setSelectedPaymentMode('Cash')}>
-                      <Text style={styles.paymentModeIcon}>💵</Text>
-                      <Text style={[
-                        styles.paymentModeText,
-                        selectedPaymentMode === 'Cash' && styles.paymentModeTextSelected,
-                      ]}>Cash</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.paymentModeCard,
-                        selectedPaymentMode === 'Card' && styles.paymentModeCardSelected,
-                      ]}
-                      onPress={() => setSelectedPaymentMode('Card')}>
-                      <Text style={styles.paymentModeIcon}>💳</Text>
-                      <Text style={[
-                        styles.paymentModeText,
-                        selectedPaymentMode === 'Card' && styles.paymentModeTextSelected,
-                      ]}>Card</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.paymentModeCard,
-                        selectedPaymentMode === 'UPI' && styles.paymentModeCardSelected,
-                      ]}
-                      onPress={() => setSelectedPaymentMode('UPI')}>
-                      <Text style={styles.paymentModeIcon}>📱</Text>
-                      <Text style={[
-                        styles.paymentModeText,
-                        selectedPaymentMode === 'UPI' && styles.paymentModeTextSelected,
-                      ]}>UPI</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <View style={styles.dialogButtonsRow}>
-                  <TouchableOpacity
-                    style={styles.dialogCancelButton}
-                    onPress={() => setShowSettlementDialog(false)}
-                    disabled={printingFromDialog}>
-                    <Text style={styles.dialogCancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[styles.dialogPrintButton, printingFromDialog && styles.dialogPrintButtonDisabled]}
-                    onPress={handlePrintFromDialog}
-                    disabled={printingFromDialog}>
-                    {printingFromDialog ? (
-                      <>
-                        <ActivityIndicator size="small" color="#ffffff" />
-                        <Text style={styles.dialogPrintButtonText}>Printing...</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={styles.dialogPrintIcon}>🖨️</Text>
-                        <Text style={styles.dialogPrintButtonText}>Print</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
+        bookingId={selectedJob?.bookingId ?? null}
+        vehicleNumber={selectedJob?.vehicleNumber ?? ''}
+        onCancel={() => {
+          setShowSettlementDialog(false);
+          setSelectedJob(null);
+        }}
+        onHiddenAfterPrintSuccess={() => setShowSettlementDialog(false)}
+        onPrintedAndFinished={() => {
+          setSelectedJob(null);
+          loadCompletedJobs();
+        }}
+      />
 
       {/* Content Area */}
       {activeTab === 'all' && (
@@ -1102,43 +748,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.backgroundLight,
   },
-  printerContainer: {
-    backgroundColor: COLORS.white,
-    paddingHorizontal: getResponsiveSpacing(20),
-    paddingVertical: verticalScale(12),
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    alignItems: 'flex-end',
-  },
-  printerButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.backgroundLight,
-    paddingHorizontal: getResponsiveSpacing(12),
-    paddingVertical: verticalScale(12),
-    borderRadius: moderateScale(12),
-    minWidth: moderateScale(44),
-    minHeight: moderateScale(44),
-  },
-  printerIconContainer: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  printerIcon: {
-    fontSize: getResponsiveFontSize(24),
-  },
-  connectedDot: {
-    width: moderateScale(10),
-    height: moderateScale(10),
-    borderRadius: moderateScale(5),
-    backgroundColor: '#22c55e',
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    borderWidth: 2,
-    borderColor: COLORS.white,
-  },
   searchContainer: {
     backgroundColor: COLORS.white,
     paddingHorizontal: getResponsiveSpacing(20),
@@ -1337,213 +946,6 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(14),
     fontWeight: '700',
     color: '#EF4444',
-  },
-  printerDialogOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  printerDialogContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: moderateScale(16),
-    padding: getResponsiveSpacing(20),
-    width: '85%',
-    maxHeight: '70%',
-  },
-  printerDialogTitle: {
-    fontSize: getResponsiveFontSize(18),
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginBottom: verticalScale(16),
-    textAlign: 'center',
-  },
-  printerList: {
-    maxHeight: moderateScale(300),
-  },
-  printerItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: getResponsiveSpacing(12),
-    borderRadius: moderateScale(8),
-    marginBottom: verticalScale(8),
-    backgroundColor: COLORS.backgroundLight,
-  },
-  printerItemSelected: {
-    backgroundColor: '#E3F2FD',
-  },
-  printerItemContent: {
-    flex: 1,
-  },
-  printerName: {
-    fontSize: getResponsiveFontSize(14),
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  printerAddress: {
-    fontSize: getResponsiveFontSize(12),
-    color: COLORS.textSecondary,
-    marginTop: verticalScale(2),
-  },
-  connectedBadge: {
-    fontSize: getResponsiveFontSize(12),
-    fontWeight: '600',
-    color: '#22c55e',
-  },
-  printerDialogButton: {
-    backgroundColor: COLORS.backgroundLight,
-    paddingVertical: verticalScale(12),
-    borderRadius: moderateScale(8),
-    alignItems: 'center',
-    marginTop: verticalScale(12),
-  },
-  printerDialogButtonText: {
-    fontSize: getResponsiveFontSize(14),
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-  },
-  settlementDialogOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  settlementDialogContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: moderateScale(16),
-    padding: getResponsiveSpacing(24),
-    width: '85%',
-    maxWidth: 400,
-  },
-  settlementDialogTitle: {
-    fontSize: getResponsiveFontSize(20),
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginBottom: verticalScale(20),
-    textAlign: 'center',
-  },
-  calculatingContainer: {
-    alignItems: 'center',
-    paddingVertical: verticalScale(40),
-  },
-  calculatingText: {
-    marginTop: verticalScale(12),
-    fontSize: getResponsiveFontSize(14),
-    color: COLORS.textSecondary,
-  },
-  amountDisplayContainer: {
-    backgroundColor: '#E3F2FD',
-    padding: getResponsiveSpacing(16),
-    borderRadius: moderateScale(12),
-    marginBottom: verticalScale(16),
-  },
-  amountLabel: {
-    fontSize: getResponsiveFontSize(13),
-    color: COLORS.textSecondary,
-    marginBottom: verticalScale(4),
-  },
-  amountDisplay: {
-    fontSize: getResponsiveFontSize(28),
-    fontWeight: '700',
-    color: COLORS.gradientEnd,
-  },
-  inputContainer: {
-    marginBottom: verticalScale(20),
-  },
-  inputLabel: {
-    fontSize: getResponsiveFontSize(13),
-    color: COLORS.textSecondary,
-    marginBottom: verticalScale(8),
-  },
-  settlementInput: {
-    backgroundColor: COLORS.backgroundLight,
-    borderRadius: moderateScale(8),
-    padding: getResponsiveSpacing(12),
-    fontSize: getResponsiveFontSize(16),
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  paymentModeContainer: {
-    marginBottom: verticalScale(20),
-  },
-  paymentModeLabel: {
-    fontSize: getResponsiveFontSize(13),
-    color: COLORS.textSecondary,
-    marginBottom: verticalScale(12),
-  },
-  paymentModeCards: {
-    flexDirection: 'row',
-    gap: getResponsiveSpacing(8),
-  },
-  paymentModeCard: {
-    flex: 1,
-    backgroundColor: COLORS.backgroundLight,
-    borderRadius: moderateScale(12),
-    padding: getResponsiveSpacing(16),
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    ...SHADOWS.small,
-  },
-  paymentModeCardSelected: {
-    borderColor: COLORS.gradientEnd,
-    backgroundColor: '#F0F9FF',
-  },
-  paymentModeIcon: {
-    fontSize: getResponsiveFontSize(32),
-    marginBottom: verticalScale(8),
-  },
-  paymentModeText: {
-    fontSize: getResponsiveFontSize(14),
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  paymentModeTextSelected: {
-    color: COLORS.gradientEnd,
-    fontWeight: '700',
-  },
-  dialogButtonsRow: {
-    flexDirection: 'row',
-    gap: getResponsiveSpacing(12),
-  },
-  dialogCancelButton: {
-    flex: 1,
-    backgroundColor: COLORS.backgroundLight,
-    paddingVertical: verticalScale(12),
-    borderRadius: moderateScale(8),
-    alignItems: 'center',
-  },
-  dialogCancelButtonText: {
-    fontSize: getResponsiveFontSize(14),
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-  },
-  dialogPrintButton: {
-    flex: 1,
-    backgroundColor: COLORS.gradientEnd,
-    paddingVertical: verticalScale(12),
-    borderRadius: moderateScale(8),
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: getResponsiveSpacing(8),
-  },
-  dialogPrintButtonDisabled: {
-    opacity: 0.6,
-  },
-  dialogPrintIcon: {
-    fontSize: getResponsiveFontSize(18),
-  },
-  dialogPrintButtonText: {
-    fontSize: getResponsiveFontSize(14),
-    fontWeight: '700',
-    color: COLORS.white,
   },
   summaryContainer: {
     flex: 1,

@@ -76,28 +76,35 @@ export default function CustomDialog({
                       onPress={() => handleButtonPress(button)}
                       activeOpacity={0.8}>
                       {!isCancel && !isDestructive ? (
-                        <LinearGradient
-                          colors={['#76D0E3', '#3156D8']}
-                          start={{x: 0, y: 0}}
-                          end={{x: 1, y: 0}}
-                          style={styles.buttonGradient}>
-                          <Text style={styles.buttonTextPrimary}>{button.text}</Text>
-                        </LinearGradient>
+                        <View style={styles.buttonClip}>
+                          <LinearGradient
+                            colors={[COLORS.gradientStart, COLORS.gradientEnd]}
+                            start={{x: 0, y: 0}}
+                            end={{x: 1, y: 0}}
+                            style={styles.buttonGradient}>
+                            <View style={styles.buttonLabelWrap} pointerEvents="none">
+                              <Text style={styles.buttonTextPrimary}>{button.text}</Text>
+                            </View>
+                          </LinearGradient>
+                        </View>
                       ) : (
                         <View
                           style={[
+                            styles.buttonClip,
                             styles.buttonSolid,
                             isDestructive && styles.buttonDestructive,
                             isCancel && styles.buttonCancel,
                           ]}>
-                          <Text
-                            style={[
-                              styles.buttonText,
-                              isDestructive && styles.buttonTextDestructive,
-                              isCancel && styles.buttonTextCancel,
-                            ]}>
-                            {button.text}
-                          </Text>
+                          <View style={styles.buttonLabelWrap} pointerEvents="none">
+                            <Text
+                              style={[
+                                styles.buttonText,
+                                isDestructive && styles.buttonTextDestructive,
+                                isCancel && styles.buttonTextCancel,
+                              ]}>
+                              {button.text}
+                            </Text>
+                          </View>
                         </View>
                       )}
                     </TouchableOpacity>
@@ -123,7 +130,10 @@ const styles = StyleSheet.create({
   dialog: {
     backgroundColor: COLORS.white,
     borderRadius: 20,
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    // Extra bottom room so elevated dialog + rounded corners do not clip actions (Android).
+    paddingBottom: Platform.OS === 'android' ? 28 : 24,
     width: '100%',
     maxWidth: 340,
     ...SHADOWS.large,
@@ -149,31 +159,40 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    overflow: 'hidden',
-    borderRadius: 12,
     alignSelf: 'stretch',
+    justifyContent: 'center',
   },
   buttonSingle: {
     flex: 1,
     alignSelf: 'stretch',
   },
+  buttonClip: {
+    width: '100%',
+    borderRadius: 26,
+    overflow: 'hidden',
+  },
   buttonGradient: {
-    paddingVertical: 14,
+    height: 52,
+    borderRadius: 26,
+    width: '100%',
     paddingHorizontal: 20,
-    alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
-    minHeight: 44,
+    alignItems: 'stretch',
   },
   buttonSolid: {
-    paddingVertical: 14,
+    height: 52,
+    borderRadius: 26,
     paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
     backgroundColor: COLORS.backgroundLight,
-    minHeight: 44,
     width: '100%',
+    justifyContent: 'center',
+    alignItems: 'stretch',
+  },
+  buttonLabelWrap: {
+    flex: 1,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'stretch',
   },
   buttonCancel: {
     backgroundColor: COLORS.backgroundLight,
@@ -185,32 +204,39 @@ const styles = StyleSheet.create({
   },
   buttonTextPrimary: {
     color: COLORS.white,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
-    includeFontPadding: false,
     textAlignVertical: 'center',
-    alignSelf: 'center',
+    includeFontPadding: false,
+    lineHeight: 22,
+    width: '100%',
   },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.textPrimary,
     textAlign: 'center',
-    includeFontPadding: false,
     textAlignVertical: 'center',
+    includeFontPadding: false,
+    lineHeight: 20,
+    width: '100%',
   },
   buttonTextCancel: {
     color: COLORS.textSecondary,
     textAlign: 'center',
-    includeFontPadding: false,
     textAlignVertical: 'center',
+    includeFontPadding: false,
+    lineHeight: 20,
+    width: '100%',
   },
   buttonTextDestructive: {
     color: COLORS.white,
     textAlign: 'center',
-    includeFontPadding: false,
     textAlignVertical: 'center',
+    includeFontPadding: false,
+    lineHeight: 20,
+    width: '100%',
   },
 });
 
