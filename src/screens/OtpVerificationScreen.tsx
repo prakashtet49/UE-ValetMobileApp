@@ -33,12 +33,12 @@ export default function OtpVerificationScreen({route}: OtpVerificationScreenProp
   const [snackbarType, setSnackbarType] = useState<'success' | 'error' | 'info'>('info');
   const {loginWithPhoneOtp, loginWithPasswordAuth, loading} = useAuth();
 
-  // Auto-submit for password-based login
+  // Auto-submit for password-based login (once on mount for password flow)
   useEffect(() => {
     if (isPasswordLogin && password) {
-      // Automatically verify with password
       onVerify();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot password auto-verify
   }, []);
 
   // Countdown timer for resend OTP (only for OTP flow)

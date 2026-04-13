@@ -23,7 +23,7 @@ export type LoginScreenProps = NativeStackScreenProps<
   'Login'
 >;
 
-export default function LoginScreen({navigation}: LoginScreenProps) {
+export default function LoginScreen(_props: LoginScreenProps) {
   const {loginWithPasswordAuth, loginWithPhoneOtp} = useAuth();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +31,6 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
   const [submitting, setSubmitting] = useState(false);
   const [showPasswordField, setShowPasswordField] = useState(false);
   const [showOtpField, setShowOtpField] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(0);
   const [canResend, setCanResend] = useState(false);
   const [dialog, setDialog] = useState<{
@@ -105,7 +104,6 @@ export default function LoginScreen({navigation}: LoginScreenProps) {
       // Check if role is valet_billing - show password field, otherwise show OTP field
       if (response.role === 'valet_billing') {
         console.log('[LoginScreen] Valet billing role detected, showing password field');
-        setUserRole(response.role);
         setShowPasswordField(true);
       } else {
         // Normal OTP flow for other roles - show OTP field on same screen

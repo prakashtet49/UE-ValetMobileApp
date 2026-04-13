@@ -10,7 +10,6 @@ import {
   View,
   Image,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {completeParking, uploadParkingPhotos} from '../api/parking';
@@ -26,7 +25,6 @@ export type ParkVehicleScreenProps = NativeStackScreenProps<
 
 export default function ParkVehicleScreen({route}: ParkVehicleScreenProps) {
   const {parkingJobId, keyTagCode} = route.params;
-  const navigation = useNavigation();
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [slotNumber, setSlotNumber] = useState('');
   const [locationDescription, setLocationDescription] = useState('');
@@ -200,7 +198,7 @@ export default function ParkVehicleScreen({route}: ParkVehicleScreenProps) {
           onChangeText={setNotes}
         />
 
-        <Text style={[styles.label, {marginTop: 8}]}>Vehicle photos (optional)</Text>
+        <Text style={[styles.label, styles.labelPhotoSection]}>Vehicle photos (optional)</Text>
         <View style={styles.photoRow}>
           <View style={styles.photoColumn}>
             <Text style={styles.photoLabel}>Front</Text>
@@ -366,6 +364,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9ca3af',
     marginBottom: 4,
+  },
+  labelPhotoSection: {
+    marginTop: 8,
   },
   input: {
     height: 48,

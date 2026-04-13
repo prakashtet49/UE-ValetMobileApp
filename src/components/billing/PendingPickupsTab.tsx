@@ -8,9 +8,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import type {AppStackParamList} from '../../navigation/AppNavigator';
 import {
   getPendingPickupRequests,
   respondToPickupRequest,
@@ -19,8 +16,19 @@ import {
 import {COLORS, SHADOWS} from '../../constants/theme';
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../../utils/responsive';
 
+function EmptyPendingPickupsTab() {
+  return (
+    <View style={styles.emptyContainer}>
+      <Text style={styles.emptyIcon}>📋</Text>
+      <Text style={styles.emptyTitle}>No pending pickups</Text>
+      <Text style={styles.emptySubtitle}>
+        When a guest requests their vehicle, you will see it here.
+      </Text>
+    </View>
+  );
+}
+
 export default function PendingPickupsTab() {
-  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState<PendingPickupJob[]>([]);
@@ -152,15 +160,7 @@ export default function PendingPickupsTab() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📋</Text>
-            <Text style={styles.emptyTitle}>No pending pickups</Text>
-            <Text style={styles.emptySubtitle}>
-              When a guest requests their vehicle, you will see it here.
-            </Text>
-          </View>
-        )}
+        ListEmptyComponent={EmptyPendingPickupsTab}
       />
     </View>
   );

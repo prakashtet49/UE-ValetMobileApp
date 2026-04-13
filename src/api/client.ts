@@ -55,19 +55,37 @@ export async function getStoredSession(): Promise<{
       return null;
     }
 
+    const parsed = JSON.parse(sessionData) as {
+      accessToken: string;
+      refreshToken?: string;
+      driverName: string;
+    };
+
     const loginTime = parseInt(timestamp, 10);
     const currentTime = Date.now();
     const elapsed = currentTime - loginTime;
 
-    // Check if session has expired (more than 24 hours)
-    if (elapsed > SESSION_DURATION_MS) {
-      console.log('[Session] Session expired, clearing stored data');
+    const {refreshToken: rtKey} = await getStoredTokens();
+    const hasRefreshToken = !!(parsed.refreshToken || rtKey);
+
+    // Without a refresh token, keep the legacy 24h client-side cap.
+    // With a refresh token, session length is governed by the server (401 + refresh); a fixed 24h here caused false "auto logout" on cold start.
+    if (elapsed > SESSION_DURATION_MS && !hasRefreshToken) {
+      console.log('[Session] Session expired (no refresh token), clearing stored data');
       await clearStoredSession();
       return null;
     }
 
-    console.log('[Session] Valid session found, expires in:', Math.floor((SESSION_DURATION_MS - elapsed) / 1000 / 60), 'minutes');
-    return JSON.parse(sessionData);
+    if (hasRefreshToken) {
+      console.log('[Session] Valid session (refresh-backed)');
+    } else {
+      console.log(
+        '[Session] Valid session, client window expires in:',
+        Math.floor((SESSION_DURATION_MS - elapsed) / 1000 / 60),
+        'minutes',
+      );
+    }
+    return parsed;
   } catch (error) {
     console.error('[Session] Error retrieving stored session:', error);
     return null;
@@ -83,7 +101,15 @@ export async function clearStoredSession() {
   ]);
 }
 
-/** Update only the access token in stored session (keeps timestamp for 24h window). */
+async function touchSessionTimestamp() {
+  try {
+    await AsyncStorage.setItem(SESSION_TIMESTAMP_KEY, Date.now().toString());
+  } catch (e) {
+    console.error('[Session] Error updating session timestamp:', e);
+  }
+}
+
+/** Update only the access token in stored session JSON. */
 export async function updateStoredSessionAccessToken(accessToken: string) {
   try {
     const [[, sessionData]] = await AsyncStorage.multiGet([SESSION_DATA_KEY]);
@@ -145,7 +171,11 @@ export type RequestOptions = {
   headers?: Record<string, string>;
 };
 
-async function doFetch(path: string, options: RequestOptions = {}) {
+async function doFetch(
+  path: string,
+  options: RequestOptions = {},
+  didRefresh401 = false,
+) {
   const {method = 'GET', body, auth = false, headers = {}} = options;
 
   const url = `${BASE_URL}${path}`;
@@ -209,17 +239,18 @@ async function doFetch(path: string, options: RequestOptions = {}) {
     });
 
     if (!response.ok) {
-      // Handle 401 Unauthorized - try refresh before clearing session
-      if (response.status === 401 && auth) {
+      // Handle 401 Unauthorized - try refresh once before clearing session
+      if (response.status === 401 && auth && !didRefresh401) {
         const newAccessToken = await refreshTokens();
         if (newAccessToken) {
           const {refreshToken} = await getStoredTokens();
           await setStoredTokens(newAccessToken, refreshToken ?? undefined);
           await updateStoredSessionAccessToken(newAccessToken);
+          await touchSessionTimestamp();
           currentAccessToken = newAccessToken;
           sessionRefreshedCallback?.(newAccessToken);
           console.log('[API] Token refreshed, retrying request');
-          return doFetch(path, options);
+          return doFetch(path, options, true);
         }
         console.log('[API] 401 Unauthorized - refresh failed or no refresh token, clearing session');
         await clearStoredSession();
@@ -257,7 +288,7 @@ export async function apiPost<T>(
   path: string,
   body: any,
   auth = false,
-  isFormData = false,
+  _isFormData = false,
 ): Promise<T> {
   return doFetch(path, {
     method: 'POST',

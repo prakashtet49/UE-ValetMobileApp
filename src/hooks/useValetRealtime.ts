@@ -39,8 +39,6 @@ export function useValetRealtime(callbacks: UseValetRealtimeCallbacks = {}) {
     console.log('[WebSocket] Has onNewPickupRequest:', !!callbacks.onNewPickupRequest);
     callbacksRef.current = callbacks;
   }, [callbacks]);
-  
-  const {onActiveJobsUpdate, onJobStatsUpdate, onNewPickupRequest} = callbacks;
 
   const connect = useCallback(async () => {
     try {

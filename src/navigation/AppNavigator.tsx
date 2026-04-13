@@ -68,6 +68,14 @@ export type AppStackParamList = {
   HelpSupport: undefined;
 };
 
+/** Routes used from billing hub (`BillingScreen` and related screens). */
+export type BillingStackParamList = {
+  Billing: undefined;
+  BillingPendingPickups: undefined;
+  BillingActiveJobs: undefined;
+  GenerateBills: undefined;
+  Profile: undefined;
+};
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();

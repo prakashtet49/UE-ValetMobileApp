@@ -1,5 +1,5 @@
-import React, {useState, useRef} from 'react';
-import {View, StyleSheet, Text, Image, TouchableOpacity, ActivityIndicator} from 'react-native';
+import React, {useState} from 'react';
+import {View, StyleSheet, Text, Image} from 'react-native';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../utils/responsive';
 import GenerateBillsTab from '../components/billing/GenerateBillsTab';

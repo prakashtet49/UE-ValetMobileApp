@@ -8,7 +8,6 @@ import {
   Dimensions,
   Text,
 } from 'react-native';
-import {COLORS} from '../constants/theme';
 
 const {width, height} = Dimensions.get('window');
 

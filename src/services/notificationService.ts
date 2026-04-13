@@ -27,7 +27,9 @@ async function createNotificationChannel() {
   for (const channelId of oldChannels) {
     try {
       await notifee.deleteChannel(channelId);
-    } catch (_) {}
+    } catch {
+      /* ignore missing old channel */
+    }
   }
 
   try {
@@ -41,7 +43,7 @@ async function createNotificationChannel() {
       lights: true,
       lightColor: '#3156D8',
     });
-  } catch (e) {
+  } catch {
     // If custom sound fails (e.g. res/raw/sound.mp3 missing), use system default so buzzer always plays
     await notifee.createChannel({
       id: NOTIFICATION_CHANNEL_ID,

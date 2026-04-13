@@ -16,7 +16,6 @@ import type {AppStackParamList} from '../navigation/AppNavigator';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {moderateScale, verticalScale, getResponsiveFontSize, getResponsiveSpacing} from '../utils/responsive';
 import BackButton from '../components/BackButton';
-import LinearGradient from 'react-native-linear-gradient';
 import {getInProgressBooking, deleteBooking} from '../api/pickup';
 
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
@@ -105,7 +104,7 @@ export default function InProgressJobsScreen() {
       const ampm = hours >= 12 ? 'PM' : 'AM';
       const formattedHours = (hours % 12 || 12).toString();
       return `${day}/${month}/${year} ${formattedHours}:${minutes} ${ampm}`;
-    } catch (error) {
+    } catch {
       return timestamp;
     }
   };

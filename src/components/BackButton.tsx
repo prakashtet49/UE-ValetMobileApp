@@ -1,5 +1,5 @@
 import React from 'react';
-import {TouchableOpacity, Text, StyleSheet, View, Image} from 'react-native';
+import {TouchableOpacity, Text, StyleSheet, Image} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 
 const backIcon = require('../assets/icons/back.png');

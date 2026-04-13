@@ -17,6 +17,7 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
 import {getActiveJobs, type ActiveJob} from '../api/jobs';
 import {checkoutParking} from '../api/parking';
+import {useAuth} from '../context/AuthContext';
 import BackButton from '../components/BackButton';
 import SettlementReceiptModal from '../components/billing/SettlementReceiptModal';
 import {COLORS, SHADOWS} from '../constants/theme';
@@ -33,6 +34,8 @@ const arrowRightIcon = require('../assets/icons/arrow-right.png');
 
 export default function ActiveJobsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
+  const {session} = useAuth();
+  const canCheckout = session?.user?.role === 'valet_billing';
   const [jobs, setJobs] = useState<ActiveJob[]>([]);
   const [filteredJobs, setFilteredJobs] = useState<ActiveJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,6 +103,9 @@ export default function ActiveJobsScreen() {
   };
 
   const handleCheckoutPress = (job: ActiveJob) => {
+    if (!canCheckout) {
+      return;
+    }
     setCheckoutDialog({
       visible: true,
       job: job,
@@ -107,7 +113,9 @@ export default function ActiveJobsScreen() {
   };
 
   const handleCheckoutConfirm = async () => {
-    if (!checkoutDialog.job) return;
+    if (!checkoutDialog.job || !canCheckout) {
+      return;
+    }
 
     setProcessingCheckout(true);
     try {
@@ -211,23 +219,24 @@ export default function ActiveJobsScreen() {
           <Text style={styles.detailValue}>{item.locationDescription || item.locationName}</Text>
         </View>
         
-        {/* Checkout Button */}
-        <TouchableOpacity
-          onPress={() => handleCheckoutPress(item)}
-          style={styles.checkoutButton}
-          activeOpacity={0.85}>
-          <View style={styles.checkoutButtonClip}>
-            <LinearGradient
-              colors={[COLORS.error, '#DC2626']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 1}}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.checkoutButtonContent} pointerEvents="none">
-              <Text style={styles.checkoutButtonText}>CHECKOUT</Text>
+        {canCheckout && (
+          <TouchableOpacity
+            onPress={() => handleCheckoutPress(item)}
+            style={styles.checkoutButton}
+            activeOpacity={0.85}>
+            <View style={styles.checkoutButtonClip}>
+              <LinearGradient
+                colors={[COLORS.error, '#DC2626']}
+                start={{x: 0, y: 0}}
+                end={{x: 1, y: 1}}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.checkoutButtonContent} pointerEvents="none">
+                <Text style={styles.checkoutButtonText}>CHECKOUT</Text>
+              </View>
             </View>
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        )}
       </View>
     );
   };

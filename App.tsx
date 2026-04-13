@@ -20,14 +20,10 @@ import AppNavigator from './src/navigation/AppNavigator';
 import messaging from '@react-native-firebase/messaging';
 import {handleJobNotification} from './src/notifications/jobNotifications';
 import {navigate} from './src/navigation/navigationRef';
-import { AppState } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
 import GlobalNetworkMonitor from './src/components/GlobalNetworkMonitor';
-import {initializeFCM, setupNotificationListeners} from './src/services/notificationService';
+import {initializeFCM} from './src/services/notificationService';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import {logError} from './src/utils/errorHandler';
-
-import {navigationRef} from './src/navigation/navigationRef';
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
@@ -50,7 +46,7 @@ function App() {
         try {
           console.log('[FCM] Notification opened from background', remoteMessage);
           if (remoteMessage?.data) {
-            handleJobNotification(remoteMessage.data);
+            handleJobNotification(remoteMessage);
           }
         } catch (error) {
           logError('FCM onNotificationOpenedApp', error);
@@ -64,7 +60,7 @@ function App() {
           try {
             console.log('[FCM] getInitialNotification result', remoteMessage);
             if (remoteMessage?.data) {
-              handleJobNotification(remoteMessage.data);
+              handleJobNotification(remoteMessage);
             }
           } catch (error) {
             logError('FCM getInitialNotification handler', error);
@@ -132,8 +128,8 @@ function App() {
         } else {
           console.log('[FCM] ⚠️ FCM initialization failed or permission denied');
         }
-      } catch (error) {
-        console.error('[FCM] ❌ Error initializing FCM:', error);
+      } catch (initError) {
+        logError('FCM initFCM', initError);
       }
     };
 
@@ -172,7 +168,7 @@ function App() {
                   <Text style={styles.bannerText}>
                     {foregroundJob.vehicleNumber}
                     {foregroundJob.pickupPoint
-                      ? ` b7 ${foregroundJob.pickupPoint}`
+                      ? ` · ${foregroundJob.pickupPoint}`
                       : ''}
                   </Text>
                   <View style={styles.bannerActionsRow}>

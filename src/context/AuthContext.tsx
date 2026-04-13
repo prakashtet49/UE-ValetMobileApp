@@ -1,7 +1,7 @@
 import React, {createContext, ReactNode, useContext, useState, useEffect} from 'react';
 import {verifyOtp, loginWithPassword} from '../api/auth';
 import {tempLogin, getDriverProfile} from '../api/driver';
-import {clearStoredTokens, setStoredTokens, setStoredSession, getStoredSession, clearStoredSession, setSessionInvalidatedCallback, setSessionRefreshedCallback, setCurrentAccessToken} from '../api/client';
+import {setStoredTokens, setStoredSession, getStoredSession, clearStoredSession, setSessionInvalidatedCallback, setSessionRefreshedCallback, setCurrentAccessToken} from '../api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {initializeFCM, clearFCMToken} from '../services/notificationService';
 
@@ -51,8 +51,8 @@ export function AuthProvider({children}: {children: ReactNode}) {
         } else {
           console.log('[Auth] No valid stored session found');
         }
-      } catch (error) {
-        console.error('[Auth] Failed to initialize session:', error);
+      } catch (initSessionErr) {
+        console.error('[Auth] Failed to initialize session:', initSessionErr);
       } finally {
         setInitializing(false);
       }

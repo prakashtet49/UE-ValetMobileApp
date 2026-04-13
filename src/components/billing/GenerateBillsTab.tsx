@@ -31,7 +31,6 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
   const [completedJobs, setCompletedJobs] = useState<CompletedJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [printingJob, setPrintingJob] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [dialog, setDialog] = useState<{
     visible: boolean;
@@ -53,7 +52,9 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
   useFocusEffect(
     React.useCallback(() => {
       loadCompletedJobs();
-    }, [])
+      // Intentionally run on focus only; loadCompletedJobs reads latest activeTab via closure on each focus.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
   );
 
   useEffect(() => {
@@ -75,9 +76,9 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
         ? await getCompletedJobsPending()
         : await getCompletedJobs();
       setCompletedJobs(response.data || []);
-    } catch (error) {
-      logError('GenerateBillsTab.loadCompletedJobs', error);
-      setError(getUserFriendlyMessage(error));
+    } catch (loadErr) {
+      logError('GenerateBillsTab.loadCompletedJobs', loadErr);
+      setError(getUserFriendlyMessage(loadErr));
     } finally {
       setLoading(false);
     }
@@ -94,9 +95,9 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
       
       const response = await getTotalSummaryShifts(startDate, endDate);
       setSummaryData(response);
-    } catch (error) {
-      logError('GenerateBillsTab.loadTodaySummary', error);
-      setSummaryError(getUserFriendlyMessage(error));
+    } catch (summaryErr) {
+      logError('GenerateBillsTab.loadTodaySummary', summaryErr);
+      setSummaryError(getUserFriendlyMessage(summaryErr));
     } finally {
       setSummaryLoading(false);
     }
@@ -133,9 +134,8 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
           // Fallback to calendar view if DatePickerAndroid not available
           setShowDatePicker(type);
         }
-      } catch (error) {
-        console.error('[GenerateBillsTab] DatePickerAndroid error:', error);
-        // Fallback to calendar view on error
+      } catch (pickerErr) {
+        logError('GenerateBillsTab.openDatePicker', pickerErr);
         setShowDatePicker(type);
       }
     } else {
@@ -303,21 +303,11 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
         </View>
       </View>
 
-      <TouchableOpacity 
-        style={[styles.printButton, printingJob === item.id && styles.printButtonDisabled]} 
-        onPress={() => handleGenerateBill(item)}
-        disabled={printingJob === item.id}>
-        {printingJob === item.id ? (
-          <>
-            <ActivityIndicator size="small" color="#EF4444" />
-            <Text style={styles.printButtonText}>Generating...</Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.printIcon}>📄</Text>
-            <Text style={styles.printButtonText}>Generate Bill</Text>
-          </>
-        )}
+      <TouchableOpacity
+        style={styles.printButton}
+        onPress={() => handleGenerateBill(item)}>
+        <Text style={styles.printIcon}>📄</Text>
+        <Text style={styles.printButtonText}>Generate Bill</Text>
       </TouchableOpacity>
     </View>
   );
@@ -597,7 +587,12 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
             {summaryData.shifts && summaryData.shifts.length > 0 && (
               <View style={styles.shiftsSection}>
                 <Text style={styles.sectionTitle}>Shifts Breakdown</Text>
-                {summaryData.shifts.map((shift, index) => (
+                {summaryData.shifts.map((shift, index) => {
+                  const pm = shift.paymentModes;
+                  const shiftCash = pm?.Cash ?? 0;
+                  const shiftCard = pm?.Card ?? 0;
+                  const shiftUpi = pm?.UPI ?? 0;
+                  return (
                   <View key={`shift-${index}`} style={[styles.shiftCard, shift.isActive && styles.shiftCardActive]}>
                     <View style={styles.shiftHeader}>
                       <View style={styles.shiftHeaderLeft}>
@@ -628,34 +623,34 @@ export default function GenerateBillsTab({onPrinterButtonRender}: GenerateBillsT
                       </View>
                     </View>
 
-                    {/* Payment Modes for Shift */}
-                    {(shift.paymentModes.Cash > 0 || shift.paymentModes.Card > 0 || shift.paymentModes.UPI > 0) && (
+                    {(shiftCash > 0 || shiftCard > 0 || shiftUpi > 0) && (
                       <View style={styles.shiftPaymentModes}>
                         <Text style={styles.shiftPaymentTitle}>Payment Modes:</Text>
                         <View style={styles.shiftPaymentRow}>
-                          {shift.paymentModes.Cash > 0 && (
+                          {shiftCash > 0 && (
                             <View style={styles.shiftPaymentItem}>
                               <Text style={styles.shiftPaymentLabel}>Cash:</Text>
-                              <Text style={styles.shiftPaymentValue}>₹{shift.paymentModes.Cash.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
+                              <Text style={styles.shiftPaymentValue}>₹{shiftCash.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
                             </View>
                           )}
-                          {shift.paymentModes.Card > 0 && (
+                          {shiftCard > 0 && (
                             <View style={styles.shiftPaymentItem}>
                               <Text style={styles.shiftPaymentLabel}>Card:</Text>
-                              <Text style={styles.shiftPaymentValue}>₹{shift.paymentModes.Card.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
+                              <Text style={styles.shiftPaymentValue}>₹{shiftCard.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
                             </View>
                           )}
-                          {shift.paymentModes.UPI > 0 && (
+                          {shiftUpi > 0 && (
                             <View style={styles.shiftPaymentItem}>
                               <Text style={styles.shiftPaymentLabel}>UPI:</Text>
-                              <Text style={styles.shiftPaymentValue}>₹{shift.paymentModes.UPI.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
+                              <Text style={styles.shiftPaymentValue}>₹{shiftUpi.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
                             </View>
                           )}
                         </View>
                       </View>
                     )}
                   </View>
-                ))}
+                  );
+                })}
               </View>
             )}
           </ScrollView>

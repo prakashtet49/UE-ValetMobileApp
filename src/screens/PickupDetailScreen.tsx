@@ -210,13 +210,13 @@ export default function PickupDetailScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.primaryButton, {marginTop: 12}]}
+          style={[styles.primaryButton, styles.primaryButtonSpaced]}
           onPress={() => navigation.navigate('DriveToPickup', {pickupJobId})}>
           <Text style={styles.primaryButtonText}>Drive to pickup point</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.secondaryButton, {marginTop: 10}]}
+          style={[styles.secondaryButton, styles.secondaryButtonSpaced]}
           onPress={() =>
             navigation.navigate('IncidentReport', {
               contextType: 'PICKUP',
@@ -459,6 +459,12 @@ const styles = StyleSheet.create({
     color: '#e5e7eb',
     fontSize: 13,
     fontWeight: '500',
+  },
+  primaryButtonSpaced: {
+    marginTop: 12,
+  },
+  secondaryButtonSpaced: {
+    marginTop: 10,
   },
   photoBlock: {
     marginTop: 10,

@@ -1,4 +1,4 @@
-import type messaging from '@react-native-firebase/messaging';
+import type {FirebaseMessagingTypes} from '@react-native-firebase/messaging';
 import {navigate} from '../navigation/navigationRef';
 
 // Map an FCM message into navigation to NewJobRequestScreen.
@@ -12,13 +12,9 @@ import {navigate} from '../navigation/navigationRef';
 // }
 
 export function handleJobNotification(
-  remoteMessage: messaging.FirebaseMessagingTypes.RemoteMessage,
+  remoteMessage: FirebaseMessagingTypes.RemoteMessage,
 ) {
-  const data = remoteMessage.data || {};
-  if (!data) {
-    return;
-  }
-
+  const data = remoteMessage.data ?? {};
   if (data.type !== 'NEW_JOB') {
     return;
   }
@@ -33,9 +29,9 @@ export function handleJobNotification(
   }
 
   navigate('NewJobRequest', {
-    jobId,
-    vehicleNumber,
-    tagNumber: tagNumber || undefined,
-    pickupPoint: pickupPoint || undefined,
+    jobId: String(jobId),
+    vehicleNumber: String(vehicleNumber),
+    tagNumber: tagNumber ? String(tagNumber) : undefined,
+    pickupPoint: pickupPoint ? String(pickupPoint) : undefined,
   });
 }

@@ -16,13 +16,23 @@ import type {AppStackParamList} from '../navigation/AppNavigator';
 import {
   getPendingPickupRequests,
   respondToPickupRequest,
-  updatePickupStatus,
   type PendingPickupJob,
 } from '../api/pickup';
 import BackButton from '../components/BackButton';
 import {COLORS, SHADOWS} from '../constants/theme';
 
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
+
+function EmptyPendingPickupsMessage() {
+  return (
+    <View style={styles.emptyContainer}>
+      <Text style={styles.emptyTitle}>No pending pickups</Text>
+      <Text style={styles.emptySubtitle}>
+        When a guest requests their vehicle, you will see it here.
+      </Text>
+    </View>
+  );
+}
 
 export default function PendingPickupsScreen() {
   const navigation =
@@ -88,22 +98,6 @@ export default function PendingPickupsScreen() {
 
   const formatStatus = (status: string) => {
     return status.replace(/_/g, ' ');
-  };
-
-  const handleUpdateStatus = async (
-    jobId: string,
-    status: 'PICKUP_STARTED' | 'VEHICLE_PICKED_UP' | 'DELIVERED',
-  ) => {
-    try {
-      setActionLoadingId(jobId);
-      console.log('[PendingPickups] Updating pickup status', {jobId, status});
-      await updatePickupStatus({pickupJobId: jobId, status});
-      await loadData();
-    } catch (error) {
-      console.error('[PendingPickups] Failed to update pickup status', error);
-    } finally {
-      setActionLoadingId(null);
-    }
   };
 
   const renderItem = ({item}: {item: PendingPickupJob}) => {
@@ -197,14 +191,7 @@ export default function PendingPickupsScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyTitle}>No pending pickups</Text>
-            <Text style={styles.emptySubtitle}>
-              When a guest requests their vehicle, you will see it here.
-            </Text>
-          </View>
-        )}
+        ListEmptyComponent={EmptyPendingPickupsMessage}
       />
     </View>
   );

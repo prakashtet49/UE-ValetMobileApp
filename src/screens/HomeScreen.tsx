@@ -21,7 +21,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import {useAuth} from '../context/AuthContext';
 import {getTodayJobStats} from '../api/stats';
 import {getJobsStats} from '../api/jobs';
-import {pauseShift, startShift, getShiftStatus, startDriverShift, endDriverShift} from '../api/shifts';
+import {getShiftStatus, startDriverShift, endDriverShift} from '../api/shifts';
 import {getPendingPickupRequests, getCurrentPickupJob, getInProgressBooking} from '../api/pickup';
 import {markVehicleArrived, markVehicleHandedOver} from '../api/parking';
 import {getClientLocations, assignLocation, type Location} from '../api/driver';
@@ -31,7 +31,6 @@ import CustomDialog from '../components/CustomDialog';
 import BillingPrinterConnection from '../components/billing/BillingPrinterConnection';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {useValetRealtime} from '../hooks/useValetRealtime';
-import {testNotification} from '../services/notificationService';
 
 const parkIcon = require('../assets/icons/park_icon.png');
 const carParkingIcon = require('../assets/icons/car_parking.png');
@@ -63,7 +62,7 @@ export default function HomeScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const route = useRoute<HomeScreenProps['route']>();
-  const {session, logout} = useAuth();
+  const {session} = useAuth();
   const [activePickupJob, setActivePickupJob] = useState<any>(null);
   const [isBannerExpanded, setIsBannerExpanded] = useState(true);
   const [pickupStatus, setPickupStatus] = useState<'pending' | 'arrived' | 'completed'>('pending');
@@ -78,7 +77,7 @@ export default function HomeScreen() {
     'offline',
   );
   const [shiftStartedAt, setShiftStartedAt] = useState<string | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [, setElapsedSeconds] = useState(0);
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
@@ -488,6 +487,8 @@ export default function HomeScreen() {
     loadLocations();
     animateParkButton();
     animateFloatingShapes();
+    // Mount-only bootstrap; loadDashboard/loadLocations read latest state on each home entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Animate PARK button with pulse effect
@@ -512,7 +513,7 @@ export default function HomeScreen() {
   // Animate floating shapes
   const animateFloatingShapes = () => {
     const screenWidth = Dimensions.get('window').width;
-    const screenHeight = Dimensions.get('window').height;
+    const windowHeight = Dimensions.get('window').height;
 
     // Shape 1 animation
     Animated.loop(
@@ -544,7 +545,7 @@ export default function HomeScreen() {
       Animated.parallel([
         Animated.sequence([
           Animated.timing(shape2, {
-            toValue: {x: 100, y: screenHeight - 200},
+            toValue: {x: 100, y: windowHeight - 200},
             duration: 18000,
             useNativeDriver: true,
           }),
@@ -672,6 +673,7 @@ export default function HomeScreen() {
             });
         }
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- partial route.params; avoid coupling to full route object.
     }, [route.params?.activePickupJob, navigation, session?.user?.role, refreshInProgressCount])
   );
 
@@ -730,19 +732,6 @@ export default function HomeScreen() {
     return () => clearInterval(interval);
   }, [shiftStatus, shiftStartedAt]);
 
-  const formatDuration = (totalSeconds: number) => {
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    if (minutes > 0) {
-      return `${minutes}m ${seconds}s`;
-    }
-    return `${seconds}s`;
-  };
-
   const handleProfile = () => {
     navigation.navigate('Profile');
   };
@@ -774,28 +763,6 @@ export default function HomeScreen() {
       return;
     }
     action();
-  };
-
-  const onToggleOnline = async () => {
-    try {
-      if (shiftStatus === 'offline') {
-        const response = await startShift({
-          locationId: 'c0e66a7b-4299-4690-95cf-f5fb251a9801',
-          deviceInfo: {
-            deviceId: 'mobile-device',
-            appVersion: '1.0.0',
-            osVersion: 'rn-0.82',
-          },
-        });
-        setShiftStatus(response.status === 'active' ? 'active' : 'paused');
-        setShiftStartedAt(response.startedAt);
-      } else {
-        const response = await pauseShift();
-        setShiftStatus(response.status === 'paused' ? 'paused' : 'offline');
-      }
-    } catch (error) {
-      console.error('Failed to toggle shift status', error);
-    }
   };
 
   const onRefresh = async () => {
@@ -941,7 +908,11 @@ export default function HomeScreen() {
                 {changingLocation ? 'Changing location...' : (selectedLocation ? selectedLocation.name : 'Select Location')}
               </Text>
               {changingLocation ? (
-                <ActivityIndicator size="small" color={COLORS.gradientEnd} style={{marginLeft: 4}} />
+                <ActivityIndicator
+                  size="small"
+                  color={COLORS.gradientEnd}
+                  style={styles.locationLoadingSpinner}
+                />
               ) : (
                 <Text style={styles.dropdownArrow}>{showLocationDropdown ? '▲' : '▼'}</Text>
               )}
@@ -1875,5 +1846,8 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(14),
     fontWeight: '600',
     textAlign: 'center',
+  },
+  locationLoadingSpinner: {
+    marginLeft: getResponsiveSpacing(4),
   },
 });

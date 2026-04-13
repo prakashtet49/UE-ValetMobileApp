@@ -2,6 +2,23 @@
  * Global error handler utility for consistent error handling across the app
  */
 
+/** Safe string for logging or UI from any thrown value (including non-Error). */
+export function toErrorMessage(error: unknown): string {
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    const m = (error as {message?: unknown}).message;
+    if (typeof m === 'string') {
+      return m;
+    }
+  }
+  return 'An unexpected error occurred. Please try again.';
+}
+
 export type ErrorType = 
   | 'NETWORK_ERROR'
   | 'API_ERROR'
@@ -13,18 +30,29 @@ export type ErrorType =
 export interface AppError {
   type: ErrorType;
   message: string;
-  originalError?: any;
+  originalError?: unknown;
   code?: string;
 }
 
 /**
  * Parse and categorize errors
  */
-export function parseError(error: any): AppError {
+type LooseError = {
+  message?: string;
+  name?: string;
+  status?: number;
+  body?: {message?: string};
+  code?: string;
+};
+
+export function parseError(error: unknown): AppError {
+  const e = error as LooseError;
   // Network errors
-  if (error?.message?.includes('Network request failed') || 
-      error?.message?.includes('timeout') ||
-      error?.name === 'AbortError') {
+  if (
+    e?.message?.includes('Network request failed') ||
+    e?.message?.includes('timeout') ||
+    e?.name === 'AbortError'
+  ) {
     return {
       type: 'NETWORK_ERROR',
       message: 'Cannot connect to server. Please check your internet connection.',
@@ -33,18 +61,17 @@ export function parseError(error: any): AppError {
   }
 
   // API errors
-  if (error?.status || error?.body) {
+  if (e?.status || e?.body) {
     return {
       type: 'API_ERROR',
-      message: error?.body?.message || error?.message || 'An error occurred. Please try again.',
+      message: e?.body?.message || e?.message || 'An error occurred. Please try again.',
       originalError: error,
-      code: error?.status?.toString(),
+      code: e?.status?.toString(),
     };
   }
 
   // Permission errors
-  if (error?.message?.includes('permission') || 
-      error?.message?.includes('denied')) {
+  if (e?.message?.includes('permission') || e?.message?.includes('denied')) {
     return {
       type: 'PERMISSION_ERROR',
       message: 'Permission denied. Please grant the required permissions.',
@@ -53,8 +80,10 @@ export function parseError(error: any): AppError {
   }
 
   // Camera errors
-  if (error?.message?.includes('camera') || 
-      error?.code?.includes('camera')) {
+  if (
+    e?.message?.includes('camera') ||
+    (typeof e?.code === 'string' && e.code.includes('camera'))
+  ) {
     return {
       type: 'CAMERA_ERROR',
       message: 'Camera error. Please try again.',
@@ -65,7 +94,7 @@ export function parseError(error: any): AppError {
   // Default unknown error
   return {
     type: 'UNKNOWN_ERROR',
-    message: error?.message || 'An unexpected error occurred. Please try again.',
+    message: toErrorMessage(error),
     originalError: error,
   };
 }
@@ -73,7 +102,7 @@ export function parseError(error: any): AppError {
 /**
  * Log error with context
  */
-export function logError(context: string, error: any, additionalInfo?: any) {
+export function logError(context: string, error: unknown, additionalInfo?: unknown) {
   const parsedError = parseError(error);
   console.error(`[${context}] Error:`, {
     type: parsedError.type,
@@ -87,7 +116,7 @@ export function logError(context: string, error: any, additionalInfo?: any) {
 /**
  * Get user-friendly error message
  */
-export function getUserFriendlyMessage(error: any): string {
+export function getUserFriendlyMessage(error: unknown): string {
   const parsedError = parseError(error);
   return parsedError.message;
 }

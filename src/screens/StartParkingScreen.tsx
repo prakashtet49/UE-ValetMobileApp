@@ -27,8 +27,6 @@ import GradientButton from '../components/GradientButton';
 import CustomDialog from '../components/CustomDialog';
 import {COLORS, SHADOWS} from '../constants/theme';
 import {stampImageWithWatermarkAndTimestamp} from '../utils/imageStamp';
-import ImagePreviewModal from '../components/ImagePreviewModal';
-
 const urbaneaseLogo = require('../assets/icons/urbanease-logo.png');
 const arrowRightIcon = require('../assets/icons/arrow-right.png');
 
@@ -78,12 +76,6 @@ export default function StartParkingScreen() {
     message: '',
     buttons: [],
   });
-  const [previewImage, setPreviewImage] = useState<{visible: boolean; uri: string | null; index: number | null}>({
-    visible: false,
-    uri: null,
-    index: null,
-  });
-
   const requestCameraPermission = async () => {
     if (Platform.OS === 'android') {
       try {
@@ -182,8 +174,8 @@ export default function StartParkingScreen() {
         // Upload photo immediately
         await uploadPhoto(photos.length, newPhoto);
       }
-    } catch (error) {
-      console.error('Camera error:', error);
+    } catch (cameraErr) {
+      console.error('Camera error:', cameraErr);
       setDialog({
         visible: true,
         title: 'Error',
@@ -262,8 +254,8 @@ export default function StartParkingScreen() {
         // Upload video immediately
         await uploadVideo(videoData);
       }
-    } catch (error) {
-      console.error('Camera error:', error);
+    } catch (videoCameraErr) {
+      console.error('Camera error:', videoCameraErr);
       setDialog({
         visible: true,
         title: 'Error',
@@ -285,8 +277,8 @@ export default function StartParkingScreen() {
       };
 
       await uploadParkingPhotos(parkingJobId, photoData);
-    } catch (error) {
-      console.error('Failed to upload photo:', error);
+    } catch (uploadPhotoErr) {
+      console.error('Failed to upload photo:', uploadPhotoErr);
       setDialog({
         visible: true,
         title: 'Upload Failed',
@@ -305,8 +297,8 @@ export default function StartParkingScreen() {
     try {
       // Upload video using the video option (not damagePhoto)
       await uploadParkingPhotos(parkingJobId, {video: videoData});
-    } catch (error) {
-      console.error('Failed to upload video:', error);
+    } catch (uploadVideoErr) {
+      console.error('Failed to upload video:', uploadVideoErr);
       setDialog({
         visible: true,
         title: 'Upload Failed',
@@ -334,8 +326,8 @@ export default function StartParkingScreen() {
       setLocationName(response.locationName);
       setKeyTagVerified(true);
       setError(null);
-    } catch (error) {
-      console.error('Failed to verify key tag', error);
+    } catch (verifyErr) {
+      console.error('Failed to verify key tag', verifyErr);
       setError('Invalid key tag code. Please try again.');
       setKeyTagVerified(false);
     } finally {
@@ -399,9 +391,12 @@ export default function StartParkingScreen() {
         message: response.message || 'Manual booking created successfully! Please continue with vehicle details.',
         buttons: [{text: 'OK', style: 'default'}],
       });
-    } catch (error: any) {
-      console.error('Failed to create manual booking:', error);
-      const errorMessage = error?.body?.message || error?.message || 'Failed to create manual booking. Please try again.';
+    } catch (manualBookingErr: any) {
+      console.error('Failed to create manual booking:', manualBookingErr);
+      const errorMessage =
+        manualBookingErr?.body?.message ||
+        manualBookingErr?.message ||
+        'Failed to create manual booking. Please try again.';
       setError(errorMessage);
       setDialog({
         visible: true,
@@ -447,9 +442,12 @@ export default function StartParkingScreen() {
         message: `Thank you for parking at ${locationName}. Vehicle ${response.vehicleNumber} parked successfully!`,
         buttons: [{text: 'OK', onPress: () => navigation.goBack(), style: 'default'}],
       });
-    } catch (error: any) {
-      console.error('Failed to complete parking:', error);
-      const errorMessage = error?.body?.message || error?.message || 'Failed to complete parking. Please try again.';
+    } catch (completeParkingErr: any) {
+      console.error('Failed to complete parking:', completeParkingErr);
+      const errorMessage =
+        completeParkingErr?.body?.message ||
+        completeParkingErr?.message ||
+        'Failed to complete parking. Please try again.';
       setError(errorMessage);
       setDialog({
         visible: true,

@@ -234,19 +234,6 @@
 			shellPath = /bin/sh;
 			shellScript = "set -e\n\nWITH_ENVIRONMENT=\"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\nREACT_NATIVE_XCODE=\"$REACT_NATIVE_PATH/scripts/react-native-xcode.sh\"\n\n/bin/sh -c \"$WITH_ENVIRONMENT $REACT_NATIVE_XCODE\"\n";
 		};
-		E801B2C3D45E6F7890AB1CDE /* Write dev Metro host (ip.txt) */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			name = "Write dev Metro host (ip.txt)";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# react-native-xcode.sh only writes ip.txt for Debug *device* builds; simulator Debug skips it.\n# Embed Mac LAN IP so the app can reach Metro when loopback is unreliable.\nif [[ \"$CONFIGURATION\" != *Debug* ]] || [[ \"$PLATFORM_NAME\" != *simulator* ]]; then\n  exit 0\nfi\nDEST=\"$CONFIGURATION_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$DEST\"\nIP=\"\"\nfor num in 0 1 2 3 4 5 6 7 8; do\n  IP=$(ipconfig getifaddr en${num} 2>/dev/null || true)\n  [ -n \"$IP\" ] && break\ndone\nif [ -z \"$IP\" ]; then\n  IP=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v ' 127.' | grep -v ' 169.254.' | awk '{print $2}' | head -1)\nfi\n[ -z \"$IP\" ] && IP=\"127.0.0.1\"\necho \"$IP\" > \"$DEST/ip.txt\"\n";
-			showEnvVarsInLog = 0;
-		};
 		241EEA860BD42868ED06F3E4 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -316,6 +303,19 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-valletMobileApp/Pods-valletMobileApp-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
+		E801B2C3D45E6F7890AB1CDE /* Write dev Metro host (ip.txt) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			name = "Write dev Metro host (ip.txt)";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# react-native-xcode.sh only writes ip.txt for Debug *device* builds; simulator Debug skips it.\n# Embed Mac LAN IP so the app can reach Metro when loopback is unreliable.\nif [[ \"$CONFIGURATION\" != *Debug* ]] || [[ \"$PLATFORM_NAME\" != *simulator* ]]; then\n  exit 0\nfi\nDEST=\"$CONFIGURATION_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$DEST\"\nIP=\"\"\nfor num in 0 1 2 3 4 5 6 7 8; do\n  IP=$(ipconfig getifaddr en${num} 2>/dev/null || true)\n  [ -n \"$IP\" ] && break\ndone\nif [ -z \"$IP\" ]; then\n  IP=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v ' 127.' | grep -v ' 169.254.' | awk '{print $2}' | head -1)\nfi\n[ -z \"$IP\" ] && IP=\"127.0.0.1\"\necho \"$IP\" > \"$DEST/ip.txt\"\n";
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -344,7 +344,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = BGXHYS325Y;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = valletMobileApp/Info.plist;
@@ -353,7 +353,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -373,7 +373,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = BGXHYS325Y;
 				INFOPLIST_FILE = valletMobileApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -381,7 +381,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

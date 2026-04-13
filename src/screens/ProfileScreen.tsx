@@ -141,11 +141,6 @@ export default function ProfileScreen() {
     });
   };
 
-  const handleNotifications = () => {
-    // TODO: Navigate to notifications screen
-    console.log('Navigate to notifications');
-  };
-
   if (loading) {
     return (
       <View style={styles.container}>

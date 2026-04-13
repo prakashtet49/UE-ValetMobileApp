@@ -46,6 +46,7 @@ export default function BillingScreen() {
       if (locationsLoaded && locations.length > 0) {
         restoreSelectedLocation();
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- restore on focus when locations list changes
     }, [locationsLoaded, locations])
   );
 
@@ -204,7 +205,11 @@ export default function BillingScreen() {
                   {changingLocation ? 'Changing location...' : (selectedLocation ? selectedLocation.name : 'Select Location')}
                 </Text>
                 {changingLocation ? (
-                  <ActivityIndicator size="small" color={COLORS.gradientEnd} style={{marginLeft: 4}} />
+                  <ActivityIndicator
+                    size="small"
+                    color={COLORS.gradientEnd}
+                    style={styles.locationLoadingSpinner}
+                  />
                 ) : (
                   <Text style={styles.dropdownArrow}>{showLocationDropdown ? '▲' : '▼'}</Text>
                 )}
@@ -486,5 +491,8 @@ const styles = StyleSheet.create({
     fontSize: getResponsiveFontSize(24),
     color: 'rgba(255, 255, 255, 0.8)',
     fontWeight: '700',
+  },
+  locationLoadingSpinner: {
+    marginLeft: getResponsiveSpacing(4),
   },
 });
